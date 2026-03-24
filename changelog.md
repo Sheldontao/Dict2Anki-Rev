@@ -18,4 +18,14 @@
 
 3. **完善了 `__on_assetsDownloadDone_DownloadMissingAssets` 方法**：
    - 在调用 `self.assetDownloadThread.quit()` 之后同样增加了 `self.assetDownloadThread.wait()`。
-   - **原因**：与第2点相同，修补了“下载缺失音频图片”这一特殊任务完成时的线程回收逻辑，确保线程生命周期管理的一致性和安全性。
+   **修改文件：`addon/misc.py`**
+
+   1. **重构 `ThreadPool.wait_complete`**：
+      - 之前调用 `self._q.join()` 会无限制地阻塞当前 Qt 线程直到所有原生 Python 线程（`threading.Thread`）完成全部网络请求。
+      - **原因**：如果关闭窗口时正好有数十个单词等待查询，由于阻塞，主线程无响应，导致 `QThread.wait()` 超时并导致后续析构时崩溃。现在通过修改为轮询模式并在检测到 `QThread` 传来 `isInterruptionRequested` 信号时主动清空队列并跳出，实现线程池任务的快速中止与安全释放。
+
+   **修改文件：`addon/workers.py`**
+
+   1. **修复 `AssetDownloadWorker` 中错误的同步调用**：
+      - 将 `executor.submit(__download_with_retry(fileName, url))` 修改为 `executor.submit(__download_with_retry, fileName, url)`。
+      - **原因**：之前的写法导致第一个图片下载操作在提交给线程池之前就在当前主工作线程内被同步执行了，这破坏了并发机制，还会导致关闭程序时无法及时响应中断请求。

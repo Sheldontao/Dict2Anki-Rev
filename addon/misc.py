@@ -137,7 +137,24 @@ class ThreadPool:
         self._q.put((f, args, kwargs))
 
     def wait_complete(self):
-        self._q.join()
+        try:
+            from aqt.qt import QThread
+            currentThread = QThread.currentThread()
+        except ImportError:
+            currentThread = None
+
+        import time
+        while self._q.unfinished_tasks > 0:
+            if currentThread and getattr(currentThread, 'isInterruptionRequested', lambda: False)():
+                with self._q.all_tasks_done:
+                    with self._q.mutex:
+                        self._q.queue.clear()
+                        self._q.unfinished_tasks = 0
+                        self._q.not_empty.notify_all()
+                    self._q.all_tasks_done.notify_all()
+                break
+            time.sleep(0.1)
+
         while not self.results_q.empty():
             self.result.append(self.results_q.get())
         return self.result

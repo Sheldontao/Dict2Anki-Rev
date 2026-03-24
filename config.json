@@ -1,0 +1,32 @@
+{
+  "deck": "",
+  "selectedDict": 0,
+  "selectedApi": 0,
+  "selectedGroup": null,
+
+  "credential": [
+    {
+      "username": "",
+      "password": "",
+      "cookie": "{\"__qc_wId\": \"147\", \"pgv_pvid\": \"3027582722\", \"_ga_6J9FB2R7F4\": \"GS1.1.1739193851.1.1.1739193927.0.0.0\", \"_ga\": \"GA1.1.1249629840.1739193851\", \".AspNetCore.Session\": \"CfDJ8MKChOLjJaFMuGzurx1NP6TIpk%2Fx3EV67HqUFL8uaorrz0uUERqiWBwkWbm%2FBGGX%2FCsAqbnbmuYv8jDtSkEvDYYzn5l8WN%2FI%2FYT2tg4J9Ti7om9GRQi0P2lJjCpTArVHB6Mr2ujH32DWsgp3EpJHGR0tHmUQKfeAUcGwDde%2FOGxP\", \"EudicWebSession\": \"QYNeyJoYXNfb2xkX3Bhc3N3b3JkIjpmYWxzZSwidG9rZW4iOiJ3dmpWczdsNFJFRTJsQVZuN0hNSU5WTWZ3b1E9IiwiZXhwaXJlaW4iOjEzMTQwMDAsInVzZXJpZCI6IjUzMzM0ZTgzLTQ3MjgtMTFlYS1iYjFkLTAwNTA1Njg2YWU5YiIsInVzZXJuYW1lIjoiVGFpeWFuZyBYaWFuZyIsImNyZWF0aW9uX2RhdGUiOiIyMDIwLTAyLTA0VDAwOjI4OjM2WiIsInJvbGVzIjpudWxsLCJvcGVuaWRfdHlwZSI6bnVsbCwib3BlbmlkX2Rlc2MiOm51bGwsInByb2ZpbGUiOnsibmlja25hbWUiOiJUYWl5YW5nIFhpYW5nIiwiZW1haWwiOiIxNjM0NjM2OTQzQHFxLmNvbSIsImdlbmRlciI6IjEiLCJwYXNzd29yZCI6bnVsbCwidm9jYWJ1bGFyaWVzIjp7ImVuIjo0MTc0fX0sImxhc3RfcGFzc3dvcmRfY2hhbmdlZF9kYXRlIjoiMi80LzIwMjAgODoyODozNiBBTSIsInJlZGlyZWN0X3VybCI6bnVsbH0%253d\", \".AspNetCore.Antiforgery.W85QSzz26FE\": \"CfDJ8MKChOLjJaFMuGzurx1NP6T2tYTH9p2DcJ24PF5XhQEtqZCKl0YiIUeIcC52DxjArrzjtEHEvdinwqk_q0-AYjzTb1b2Qk470DBMZ3ZDGEOkWKFIZpsgPHBcrAgH8iA4fiKOQEu_bQUZwsoq7XZTCGw\"}"
+    },
+    {
+      "username": "",
+      "password": "",
+      "cookie": ""
+    }
+  ],
+
+  "briefDefinition": true,
+  "syncTemplates": true,
+  "noPron": false,
+  "BrEPron": false,
+  "AmEPron": true,
+
+  "definition_en": true,
+  "image": true,
+  "pronunciation": true,
+  "phrase": true,
+  "sentence": true,
+  "exam_type": true
+}

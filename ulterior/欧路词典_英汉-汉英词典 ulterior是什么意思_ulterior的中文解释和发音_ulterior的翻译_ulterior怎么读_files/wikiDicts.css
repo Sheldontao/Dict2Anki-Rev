@@ -1,0 +1,194 @@
+﻿
+﻿@charset 'utf-8'; .mw-cite-backlink, .cite-accessibility-label {
+    -moz-user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.wikitionary table {
+    margin: 1em 0;
+    background-color: #f9f9f9;
+    border-collapse: collapse;
+    color: #000;
+}
+
+    .wikitionary table.float-right {
+        float: right;
+    }
+
+    .wikitionary table.wikitable > tr > th, table.wikitable > tr > td, table.wikitable > * > tr > th, table.wikitable > * > tr > td {
+        border: 1px solid #aaa;
+        padding: 0.2em 0.4em;
+    }
+
+    .wikitionary table.related > tr > th, table.related > tr > td, table.related > * > tr > th, table.related > * > tr > td {
+        border: 1px solid #aaa;
+        padding: 0.2em 0.4em;
+    }
+
+    .wikitionary table.wikitable > tr > th, table.wikitable > * > tr > th {
+        background-color: #f2f2f2;
+        text-align: center;
+    }
+
+    .wikitionary table.wikitable > caption {
+        font-weight: bold;
+    }
+
+.wikitionary img, figure, .wikitable, .thumb {
+    page-break-inside: avoid;
+}
+
+.wikitionary table.inflection-table > tr > th,.wikitionary  table.inflection-table > tr > td,.wikitionary  table.inflection-table > * > tr > th,.wikitionary  table.wikitable > * > tr > td {
+    border: 1px solid #aaa !important;
+    padding: 0.2em 0.4em;
+}
+
+.wikitionary table.inflection-table > tr > th,.wikitionary  table.inflection-table > * > tr > th {
+    background-color: #f2f2f2;
+    border: 1px solid #aaa !important;
+    text-align: center;
+}
+
+.wikitionary table.inflection-table > tr > td,.wikitionary table.inflection-table > * > tr > td {
+    border: 1px solid #aaa !important;
+    background-color: #f2f2f2;
+    text-align: center;
+}
+
+.wikitionary table.related > tr > th{
+    border: 1px solid #aaa !important;
+    padding: 0.2em 0.4em;
+}
+
+.wikitionary table.related > tr > td,.wikitionary table.related > * > tr > td {
+    border: 1px solid #aaa !important;
+    background-color: #f2f2f2;
+    text-align: center;
+}
+
+.wikitionary table.inflection-table > caption {
+    font-weight: bold;
+}
+
+.wikitionary ul.gallery li.gallerybox {
+    float: left;
+    margin: 0 20px;
+}
+
+.wikitionary .mw-body a.extiw, .mw-body a.extiw:active {
+    color: #36b;
+}
+
+    .wikitionary .mw-body a.extiw:visited {
+        color: #636;
+    }
+
+    .wikitionary .mw-body a.extiw:active {
+        color: #b63;
+    }
+
+.wikitionary .mw-body a.external {
+    color: #36b;
+}
+
+    .wikitionary .mw-body a.external:visited {
+        color: #636;
+    }
+
+    .wikitionary .mw-body a.external:active {
+        color: #b63;
+    }
+
+    .wikitionary .mw-body a.external.free {
+        word-wrap: break-word;
+    }
+
+.wikitionary {
+    color: #444;
+    font-family: helvetica, '宋体', arial, sans-serif;
+    font-size: 14px;
+    padding-left: 10px;
+}
+
+#dict-body .wikitionary h3 {
+    color: #444;
+    padding-top: 1em;
+    font-size: 18px;
+}
+
+#dict-body .wikitionary h2 {
+    color: #444;
+    font-size: 20px;
+}
+
+.wikitionary ol {
+    margin: 18px 0 0;
+}
+
+    .wikitionary ol li {
+        margin: 15px 0;
+    }
+
+        .wikitionary ol li ul li {
+            margin: 6px 0 0;
+        }
+
+.wikitionary ul {
+    margin: 0 0 10px;
+}
+
+    .wikitionary ul.mw-gallery-traditional {
+        height: 200px;
+    }
+
+.wikitionary h3 .titredef {
+    font-style: italic;
+}
+
+.wikitionary ol {
+    padding-left: 18px;
+}
+
+    .wikitionary ol li {
+        list-style-type: inherit;
+    }
+
+.wikitionary table li + li {
+    padding: 0 10px;
+    border-top: 1px solid #aaa !important;
+}
+
+.wikitionary h4, .wikitionary h5, .wikitionary h6, .wikitionary h3, .wikitionary h2, .wikitionary h1, .wikitionary p {
+    -webkit-margin-before: 0;
+    -webkit-margin-after: 0;
+}
+
+.wikitionary dl dt {
+    float: left;
+    font-weight: bold;
+}
+
+    .wikitionary dl dt:after {
+        content: '.';
+        padding: 0 8px 0 3px;
+    }
+
+#dict-body .wikitionary.wikitionary-es h2 {
+    margin-top: 1em;
+}
+
+.wikitionary-de p {
+    padding: 0;
+    margin: 6px 0 !important;
+    border-top: 0 !important;
+}
+
+#dict-body .wikitionary h4 {
+    margin-bottom: 8px;
+}
+
+.wikitionary #ColorRect {
+    display: none;
+}

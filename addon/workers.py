@@ -204,7 +204,7 @@ class AssetDownloadWorker(QObject):
         with ThreadPool(max_workers=3) as executor:
             # download images
             for fileName, url in self.images:
-                executor.submit(__download_with_retry(fileName, url))
+                executor.submit(__download_with_retry, fileName, url)
             # download audios
             for fileName, url in self.audios:
                 executor.submit(__download_with_retry, fileName, url)

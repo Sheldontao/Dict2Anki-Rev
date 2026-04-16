@@ -13,7 +13,17 @@ from aqt.qt import pyqtSlot, QThread, Qt
 from . import utils
 from .queryApi import apis
 from .conf_model import AddonConfig, DEFAULT_CONGEST
-from .repair_logic import CounterGroup
+from .repair_logic import (
+    CounterGroup,
+    SENTENCE_AUDIO_STATUS_FILLED,
+    SENTENCE_AUDIO_STATUS_UNAVAILABLE_UPSTREAM,
+    SENTENCE_AUDIO_STATUS_DOWNLOAD_FAILED,
+    SENTENCE_AUDIO_STATUS_SKIPPED,
+    apply_sentence_audio_status_to_sentences,
+    build_sentence_audio_download_plan,
+    collect_sentence_audio_repair_reasons,
+    finalize_sentence_audio_slot_status,
+)
 from .UIForm import wordGroup, mainUI, icons_rc
 from .workers import LoginStateCheckWorker, VersionCheckWorker, RemoteWordFetchingWorker, QueryWorker, AssetDownloadWorker, WorkerManager
 from .dictionary import dictionaries
@@ -752,14 +762,6 @@ class Windows(QDialog, mainUI.Ui_Dialog):
                 if audio_task:
                     audiosDownloadTasks.append(audio_task)
 
-                # Add sentence audio download tasks
-                if wordItemData.get('sentence'):
-                    for i, sentence_tuple in enumerate(wordItemData['sentence'][:3]):
-                        if len(sentence_tuple) > 2 and sentence_tuple[2]:
-                            url = sentence_tuple[2]
-                            pronFilename = default_audio_filename(f'{term}_s{i}')
-                            audiosDownloadTasks.append((pronFilename, url))
-
                 # add note
                 addNoteToDeck(deck, model, currentConfig, wordItemData, PRON_TYPES[pron_type])
                 self.added += 1
@@ -920,7 +922,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
         imagesDownloadTasks = []
         audiosDownloadTasks = []
-        for row, word in self.querySuccessDict.items():
+        for _, word in self.querySuccessDict.items():
             term = word['term']
             logger.debug(f"word ({term}): {word}")
             # Add asset download task (image and audio)
@@ -943,6 +945,15 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
     tmp_noteDict: dict = {}           # term -> [Note]
     """for FillMissingValues only"""
+
+    tmp_fill_sentence_audio_status: dict = {}
+    """for FillMissingValues only. term -> slot -> status"""
+
+    tmp_fill_sentence_audio_filename: dict = {}
+    """for FillMissingValues only. term -> slot -> filename"""
+
+    tmp_fill_audio_download_status: dict = {}
+    """for FillMissingValues only. filename -> download status"""
 
     @staticmethod
     def _is_note_field_empty(note, field_name: str) -> bool:
@@ -980,26 +991,117 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             elif utils.is_audio_file_missing(note['pronunciation'], media_dir):
                 reasons.append('pronunciation:file-missing')
 
-        # Sentence audio files can be damaged even when sentence text exists.
-        if config.get('sentence'):
-            for i in range(3):
-                key = f'sentence_speech{i}'
-                value = ''
-                try:
-                    value = note[key]
-                except KeyError:
-                    value = ''
-                if value and utils.is_audio_file_missing(value, media_dir):
-                    reasons.append(f'{key}:file-missing')
-                    break
+        # Sentence audio repair should be maintenance-focused and independent of sentence display toggle.
+        sentence_values = []
+        sentence_speech_values = []
+        for i in range(3):
+            sentence_key = f'sentence{i}'
+            speech_key = f'sentence_speech{i}'
+            sentence_value = ''
+            speech_value = ''
+            try:
+                sentence_value = note[sentence_key]
+            except KeyError:
+                sentence_value = ''
+            try:
+                speech_value = note[speech_key]
+            except KeyError:
+                speech_value = ''
+            sentence_values.append(sentence_value)
+            sentence_speech_values.append(speech_value)
+
+        reasons.extend(
+            collect_sentence_audio_repair_reasons(
+                sentence_values,
+                sentence_speech_values,
+                media_dir,
+                utils.is_audio_file_missing,
+            )
+        )
 
         return reasons
+
+    def _prepare_fill_sentence_audio_tasks(self) -> [(str, str)]:
+        self.tmp_fill_sentence_audio_status = {}
+        self.tmp_fill_sentence_audio_filename = {}
+        self.tmp_fill_audio_download_status = {}
+        audio_download_tasks = []
+        seen_audio_filenames = set()
+
+        for _, word in self.querySuccessDict.items():
+            term = word['term']
+            sentence_tuples = word.get('sentence') or []
+            tasks, slot_status, slot_filename = build_sentence_audio_download_plan(term, sentence_tuples)
+            self.tmp_fill_sentence_audio_status[term] = slot_status
+            self.tmp_fill_sentence_audio_filename[term] = slot_filename
+
+            for filename, url in tasks:
+                if filename in seen_audio_filenames:
+                    continue
+                seen_audio_filenames.add(filename)
+                audio_download_tasks.append((filename, url))
+
+        return audio_download_tasks
+
+    def _apply_fill_missing_values_updates(self, preferred_pron: int):
+        note_counter = CounterGroup(total=sum(len(v) for v in self.tmp_noteDict.values()))
+        media_dir = mw.col.media.dir()
+
+        for term, slot_status in self.tmp_fill_sentence_audio_status.items():
+            slot_filename = self.tmp_fill_sentence_audio_filename.get(term, {})
+            finalized = finalize_sentence_audio_slot_status(
+                slot_status,
+                slot_filename,
+                media_dir,
+                self.tmp_fill_audio_download_status,
+            )
+            self.tmp_fill_sentence_audio_status[term] = finalized
+
+        for row, word in self.querySuccessDict.items():
+            if self._isShuttingDown:
+                logger.info("[FillMissingValues] Interrupted by window shutdown during note updates.")
+                break
+
+            term = word['term']
+            slot_status = self.tmp_fill_sentence_audio_status.get(term, {})
+
+            patched_word = deepcopy(word)
+            sentence_tuples = patched_word.get('sentence') or []
+            if sentence_tuples and slot_status:
+                patched_word['sentence'] = apply_sentence_audio_status_to_sentences(sentence_tuples, slot_status)
+
+            logger.debug(f"word ({term}): {patched_word}")
+            _, _, pron_type, _ = self.get_asset_download_task(patched_word, preferred_pron)
+
+            existing_notes = self.tmp_noteDict.get(term, [])
+            for existing_note in existing_notes:
+                addNoteToDeck(None, None, self.tmp_currentConfig, patched_word, PRON_TYPES[pron_type], existing_note, False)
+                note_counter.inc_success()
+
+            sentence_count = len(sentence_tuples[:3]) if sentence_tuples else 0
+            sentence_with_audio = sum(1 for s in sentence_tuples[:3] if len(s) > 2 and s[2]) if sentence_tuples else 0
+            logger.info(
+                f"[Sentence audio repair] term={term} sentence_slots={sentence_count} with_url={sentence_with_audio}"
+            )
+
+        mw.reset()
+        self.logHandler.flush()
+        logger.info(
+            f"[Repair summary] queried={len(self.querySuccessDict)+len(self.queryFailedDict)}, "
+            f"query_success={len(self.querySuccessDict)}, query_failed={len(self.queryFailedDict)}, "
+            f"notes_updated={note_counter.success}/{note_counter.total}"
+        )
+        logger.info(f"Done!")
+        self.logHandler.flush()
 
     @pyqtSlot()
     def on_btnFillMissingValues_clicked(self):
         """Fill missing field values for all notes of type Dict2Anki in ALL decks.
            This function may take some time."""
         self.tmp_noteDict = {}
+        self.tmp_fill_sentence_audio_status = {}
+        self.tmp_fill_sentence_audio_filename = {}
+        self.tmp_fill_audio_download_status = {}
         self.tmp_currentConfig = self.getAndSaveCurrentConfig()
         note_query = " OR ".join([f"note:{name}" for name in MODEL_NAMES])
         noteIds = mw.col.findNotes(note_query)
@@ -1077,30 +1179,20 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             logger.info(f'Preferred Pronunciation: {PRON_TYPES[preferred_pron]}')
 
         self.logHandler.flush()
-        note_counter = CounterGroup(total=sum(len(v) for v in self.tmp_noteDict.values()))
-        for row, word in self.querySuccessDict.items():
-            if self._isShuttingDown:
-                logger.info("[FillMissingValues] Interrupted by window shutdown during note updates.")
-                break
+        self._apply_fill_missing_values_updates(preferred_pron)
 
-            term = word['term']
-            logger.debug(f"word ({term}): {word}")
-            # resolve image and audio information (for use in field values)
-            image_task, audio_task, pron_type, is_fallback = self.get_asset_download_task(word, preferred_pron)
-            # update note (fill missing field values)
-            existing_notes = self.tmp_noteDict.get(term, [])
-            for existing_note in existing_notes:
-                addNoteToDeck(None, None, self.tmp_currentConfig, word, PRON_TYPES[pron_type], existing_note, False)
-                note_counter.inc_success()
-        mw.reset()
-        self.logHandler.flush()
-        logger.info(
-            f"[Repair summary] queried={len(self.querySuccessDict)+len(self.queryFailedDict)}, "
-            f"query_success={len(self.querySuccessDict)}, query_failed={len(self.queryFailedDict)}, "
-            f"notes_updated={note_counter.success}/{note_counter.total}"
-        )
-        logger.info(f"Done!")
-        self.logHandler.flush()
+    @pyqtSlot()
+    def __on_assetsDownloadDone_FillMissingValues(self):
+        if self.assetDownloadThread is not None and self.assetDownloadThread.isRunning():
+            self.assetDownloadThread.quit()
+            self.assetDownloadThread.wait(5000)
+
+        preferred_pron = self.get_preferred_pron(self.tmp_currentConfig)
+        self._apply_fill_missing_values_updates(preferred_pron)
+
+    @pyqtSlot(str, str)
+    def _on_fill_sentence_audio_item_done(self, filename: str, status: str):
+        self.tmp_fill_audio_download_status[filename] = status
 
     @pyqtSlot()
     def on_btnExportAudio_clicked(self):

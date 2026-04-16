@@ -456,7 +456,11 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
             except KeyError:
                 pass
 
-            if not sentence_speech_value or f"<b>{term}</b>" not in sentence_value:
+            if (
+                not sentence_speech_value
+                or sentence_speech_value.strip().startswith('[sound:')
+                or f"<b>{term}</b>" not in sentence_value
+            ):
                 s_overwrite = True
 
             key, value = f'sentence{i}', sentence_tuple[0]
@@ -466,8 +470,7 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
             key, value = f'splaceHolder{i}', "Tap To View"
             setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
             if sentence_tuple[2]:
-                pronFilename = default_audio_filename(f'{term}_s{i}')
-                key, value = f'sentence_speech{i}', f"[sound:{pronFilename}]"
+                key, value = f'sentence_speech{i}', sentence_tuple[2]
                 setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
             # note[f'sentence{i}'], note[f'sentence_explain{i}'] = sentence_tuple
             # note[f'splaceHolder{i}'] = "Tap To View"

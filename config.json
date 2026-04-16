@@ -28,5 +28,6 @@
   "pronunciation": true,
   "phrase": true,
   "sentence": true,
-  "exam_type": true
+  "exam_type": true,
+  "congest": 60
 }

@@ -12,8 +12,10 @@ from aqt.qt import pyqtSlot, QThread, Qt
 
 from . import utils
 from .queryApi import apis
+from .conf_model import AddonConfig, DEFAULT_CONGEST
+from .repair_logic import CounterGroup
 from .UIForm import wordGroup, mainUI, icons_rc
-from .workers import LoginStateCheckWorker, VersionCheckWorker, RemoteWordFetchingWorker, QueryWorker, AssetDownloadWorker
+from .workers import LoginStateCheckWorker, VersionCheckWorker, RemoteWordFetchingWorker, QueryWorker, AssetDownloadWorker, WorkerManager
 from .dictionary import dictionaries
 from .logger import TimedBufferingHandler
 from .loginDialog import LoginDialog
@@ -56,11 +58,16 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.added = 0
         self.deleted = 0
 
+        self._isShuttingDown = False
+        self._resourcesClosed = False
         self.workerThread = QThread(self)
+        self.workerThread.setObjectName("dict2anki-worker")
         self.workerThread.start()
         self.updateCheckThead = QThread(self)
+        self.updateCheckThead.setObjectName("dict2anki-update-check")
         self.updateCheckThead.start()
         self.assetDownloadThread = QThread(self)
+        self.assetDownloadThread.setObjectName("dict2anki-asset-download")
         self.assetDownloadThread.start()
 
         self.updateCheckWork = None
@@ -68,8 +75,16 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.queryWorker = None
         self.pullWorker = None
         self.assetDownloadWorker = None
+        self.mainWorkerManager = WorkerManager(self.workerThread)
+        self.updateWorkerManager = WorkerManager(self.updateCheckThead)
+        self.assetWorkerManager = WorkerManager(self.assetDownloadThread)
 
         self.setupUi(self)
+        self.finished.connect(lambda _: self._shutdown("dialog finished"))
+        try:
+            mw.app.aboutToQuit.connect(lambda: self._shutdown("app quitting"))
+        except Exception:
+            pass
         self.setWindowTitle(WINDOW_TITLE)
         self.logTextBox.setReadOnly(True)
         self.logTextBox.setUndoRedoEnabled(False)
@@ -95,36 +110,55 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
     def closeEvent(self, event):
         """插件关闭时调用"""
-        # cleanup
-        for dictionary in dictionaries:
-            dictionary.close()
-        for api in apis:
-            api.close()
-
-        if self.assetDownloadWorker:
-            AssetDownloadWorker.close()
-
-        # 退出所有线程
-        if self.workerThread.isRunning():
-            self.workerThread.requestInterruption()
-            self.workerThread.quit()
-            self.workerThread.wait()
-            logger.info("workerThread stopped.")
-
-        if self.updateCheckThead.isRunning():
-            self.updateCheckThead.requestInterruption()
-            self.updateCheckThead.quit()
-            self.updateCheckThead.wait()
-            logger.info("updateCheckThead stopped.")
-
-
-        if self.assetDownloadThread.isRunning():
-            self.assetDownloadThread.requestInterruption()
-            self.assetDownloadThread.quit()
-            self.assetDownloadThread.wait()
-            logger.info("assetDownloadThread stopped.")
+        self._shutdown("close event")
 
         event.accept()
+
+    def _shutdown(self, reason=""):
+        if self._isShuttingDown:
+            return
+        self._isShuttingDown = True
+        logger.info(f"Shutting down Dict2Anki window ({reason}).")
+
+        # Close non-Qt resources first
+        if not self._resourcesClosed:
+            self._resourcesClosed = True
+            for dictionary in dictionaries:
+                try:
+                    dictionary.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close dictionary resource: {e}")
+            for api in apis:
+                try:
+                    api.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close api resource: {e}")
+            try:
+                AssetDownloadWorker.close()
+            except Exception as e:
+                logger.warning(f"Failed to close asset download session: {e}")
+
+        # Stop all worker threads deterministically. This avoids:
+        # "QThread: Destroyed while thread is still running"
+        threads = [
+            ("workerThread", self.workerThread),
+            ("updateCheckThead", self.updateCheckThead),
+            ("assetDownloadThread", self.assetDownloadThread),
+        ]
+        for thread_name, thread in threads:
+            if thread is None:
+                continue
+            if thread.isRunning():
+                thread.requestInterruption()
+                thread.quit()
+                if not thread.wait(5000):
+                    logger.warning(f"{thread_name} did not stop within 5s, waiting a bit longer...")
+                    if not thread.wait(20000):
+                        logger.warning(f"{thread_name} still running after extended wait.")
+                    else:
+                        logger.info(f"{thread_name} stopped after extended wait.")
+                else:
+                    logger.info(f"{thread_name} stopped.")
 
     def on_NewLogRecord(self, text):
         # append to log box, and scroll to bottom
@@ -145,6 +179,8 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
     def setupGUIByConfig(self):
         config = mw.addonManager.getConfig(__name__)
+        if 'congest' not in config:
+            config['congest'] = DEFAULT_CONGEST
         # logger.info(f"config name: {__name__}")
         # logger.info(f"config: {json.dumps(config)}")
 
@@ -222,6 +258,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             phrase=self.phraseCheckBox.isChecked(),
             sentence=self.sentenceCheckBox.isChecked(),
             exam_type=self.examTypeCheckBox.isChecked(),
+            congest=int((self.currentConfig or {}).get('congest', DEFAULT_CONGEST)),
         )
         configChanged, cardSettingsChanged = self._saveConfig(currentConfig)
         self.currentConfig = currentConfig
@@ -231,7 +268,10 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         """:return: (configChanged, cardSettingsChanged)"""
         # get the config currently stored in Anki
         oldConfig = deepcopy(mw.addonManager.getConfig(__name__))
+        if 'congest' not in oldConfig:
+            oldConfig['congest'] = DEFAULT_CONGEST
         _config = deepcopy(config)
+        _config['congest'] = int(_config.get('congest', DEFAULT_CONGEST) or DEFAULT_CONGEST)
         selectedDict = _config['selectedDict']
 
         # handle credential
@@ -285,11 +325,9 @@ class Windows(QDialog, mainUI.Ui_Dialog):
                 openLink(RELEASE_URL)
 
         self.updateCheckWork = VersionCheckWorker()
-        self.updateCheckWork.moveToThread(self.updateCheckThead)
         self.updateCheckWork.haveNewVersion.connect(on_haveNewVersion)
         self.updateCheckWork.finished.connect(self.updateCheckThead.quit)
-        self.updateCheckWork.start.connect(self.updateCheckWork.run)
-        self.updateCheckWork.start.emit()
+        self.updateWorkerManager.start(self.updateCheckWork, 'finished')
 
     @pyqtSlot(int)
     def on_dictionaryComboBox_currentIndexChanged(self, index):
@@ -367,12 +405,9 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
         # 登陆线程
         self.loginWorker = LoginStateCheckWorker(self.selectedDict.checkCookie, json.loads(self.cookieLineEdit.text() or '{}'))
-        self.loginWorker.moveToThread(self.workerThread)
-        self.loginWorker.finished.connect(self.loginWorker.deleteLater)
-        self.loginWorker.start.connect(self.loginWorker.run)
         self.loginWorker.logSuccess.connect(self.onLogSuccess)
         self.loginWorker.logFailed.connect(self.onLoginFailed)
-        self.loginWorker.start.emit()
+        self.mainWorkerManager.start(self.loginWorker, 'finished')
 
     @pyqtSlot()
     def onLoginFailed(self):
@@ -468,14 +503,11 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
         # 启动单词获取线程
         self.pullWorker = RemoteWordFetchingWorker(self.selectedDict, [(group_name, group_map[group_name],) for group_name in selected_groups])
-        self.pullWorker.moveToThread(self.workerThread)
-        self.pullWorker.start.connect(self.pullWorker.run)
         self.pullWorker.tick.connect(lambda: self.progressBar.setValue(self.progressBar.value() + 1))
         self.pullWorker.setProgress.connect(self.progressBar.setMaximum)
         self.pullWorker.doneThisGroup.connect(self.insertWordToListWidget)
         self.pullWorker.done.connect(self.on_allPullWork_done)
-        self.pullWorker.done.connect(self.pullWorker.deleteLater)
-        self.pullWorker.start.emit()
+        self.mainWorkerManager.start(self.pullWorker, 'done')
 
     @pyqtSlot(list)
     def insertWordToListWidget(self, words: [SimpleWord]):
@@ -555,21 +587,21 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
         logger.info(f'待查询单词{wordList}')
         # 查询线程
+        self.progressBar.setValue(0)
         self.progressBar.setMaximum(len(wordList))
+        cfg = AddonConfig.from_raw(currentConfig)
+        logger.info(f"查询限流: {cfg.congest} req/min")
         
         # Instantiate the selected API class with the authenticated session
         api_class = apis[currentConfig['selectedApi']]
         selected_api_instance = api_class(session=self.selectedDict.session)
         
-        self.queryWorker = QueryWorker(wordList, selected_api_instance)
-        self.queryWorker.moveToThread(self.workerThread)
+        self.queryWorker = QueryWorker(wordList, selected_api_instance, congest_per_minute=cfg.congest)
         self.queryWorker.thisRowDone.connect(self.on_thisRowDone)
         self.queryWorker.thisRowFailed.connect(self.on_thisRowFailed)
         self.queryWorker.tick.connect(lambda: self.progressBar.setValue(self.progressBar.value() + 1))
         self.queryWorker.allQueryDone.connect(self.on_allQueryDone)
-        self.queryWorker.allQueryDone.connect(self.queryWorker.deleteLater)
-        self.queryWorker.start.connect(self.queryWorker.run)
-        self.queryWorker.start.emit()
+        self.mainWorkerManager.start(self.queryWorker, 'allQueryDone')
 
     @pyqtSlot(int, dict)
     def on_thisRowDone(self, row, result):
@@ -614,7 +646,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         image_task = None
         term = word['term']
         if word['image']:
-            imageFilename = default_image_filename(term)
+            imageFilename = default_image_filename_by_url(term, word['image'])
             image_task = (imageFilename, word['image'])
         else:
             logger.info(f"No image for word {term}")
@@ -781,35 +813,34 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
             self.assetDownloadThread = QThread(self)
             self.assetDownloadThread.start()
+            self.assetWorkerManager = WorkerManager(self.assetDownloadThread)
             self.assetDownloadWorker = AssetDownloadWorker(mw.col.media.dir(), imagesDownloadTasks, audiosDownloadTasks)
-            self.assetDownloadWorker.moveToThread(self.assetDownloadThread)
             self.assetDownloadWorker.tick.connect(lambda: self.progressBar.setValue(self.progressBar.value() + 1))
-            self.assetDownloadWorker.start.connect(self.assetDownloadWorker.run)
             self.assetDownloadWorker.done.connect(done_func)
-            self.assetDownloadWorker.done.connect(self.assetDownloadWorker.deleteLater)
-            self.assetDownloadWorker.start.emit()
+            self.assetWorkerManager.start(self.assetDownloadWorker, 'done')
 
     # =================================== Utilities =================================== #
     @pyqtSlot()
     def on_assetsDownloadDone(self):
-        self.assetDownloadThread.quit()
-        self.assetDownloadThread.wait()
+        if self.assetDownloadThread is not None and self.assetDownloadThread.isRunning():
+            self.assetDownloadThread.quit()
+            self.assetDownloadThread.wait(5000)
         tooltip(f'图片音频下载完成')
         logger.info("图片音频下载完成")
         self.printSyncReport()
         self.logHandler.flush()
 
     def queryWords(self, wordList: [(SimpleWord, int)], dictAPI, all_done_func):
-        # self.progressBar.setMaximum(len(wordList))
-        self.queryWorker = QueryWorker(wordList, dictAPI())
-        self.queryWorker.moveToThread(self.workerThread)
+        self.progressBar.setValue(0)
+        self.progressBar.setMaximum(len(wordList))
+        congest = AddonConfig.from_raw(self.tmp_currentConfig or {}).congest
+        logger.info(f"查询限流: {congest} req/min")
+        self.queryWorker = QueryWorker(wordList, dictAPI(), congest_per_minute=congest)
         self.queryWorker.thisRowDone.connect(self.on_thisRowDone)
         self.queryWorker.thisRowFailed.connect(self.on_thisRowFailed)
-        # self.queryWorker.tick.connect(lambda: self.progressBar.setValue(self.progressBar.value() + 1))
+        self.queryWorker.tick.connect(lambda: self.progressBar.setValue(self.progressBar.value() + 1))
         self.queryWorker.allQueryDone.connect(all_done_func)
-        self.queryWorker.allQueryDone.connect(self.queryWorker.deleteLater)
-        self.queryWorker.start.connect(self.queryWorker.run)
-        self.queryWorker.start.emit()
+        self.mainWorkerManager.start(self.queryWorker, 'allQueryDone')
 
     tmp_currentConfig = None
     """for DownloadMissingAssets or FillMissingValues only"""
@@ -830,8 +861,22 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             note = mw.col.getNote(noteId)
             term = note['term']
             media_dir = mw.col.media.dir()
-            # logger.info(f"Checking term {term}")
-            if utils.is_image_file_missing(note['image'], media_dir) or utils.is_audio_file_missing(note['pronunciation'], media_dir):
+            image_value = ''
+            pronunciation_value = ''
+            try:
+                image_value = note['image']
+            except KeyError:
+                image_value = ''
+            try:
+                pronunciation_value = note['pronunciation']
+            except KeyError:
+                pronunciation_value = ''
+
+            if (
+                utils.is_image_file_missing(image_value, media_dir)
+                or utils.is_image_file_broken(image_value, media_dir)
+                or utils.is_audio_file_missing(pronunciation_value, media_dir)
+            ):
                 # logger.warning(f"image or audio file is missing for [{term}]")
                 word, row = SimpleWord(term), len(wordList)
                 wordList.append((word, row))
@@ -890,13 +935,65 @@ class Windows(QDialog, mainUI.Ui_Dialog):
     @pyqtSlot()
     def __on_assetsDownloadDone_DownloadMissingAssets(self):
         """for btnDownloadMissingAssets"""
-        self.assetDownloadThread.quit()
-        self.assetDownloadThread.wait()
+        if self.assetDownloadThread is not None and self.assetDownloadThread.isRunning():
+            self.assetDownloadThread.quit()
+            self.assetDownloadThread.wait(5000)
         logger.info(f"Download complete!")
         self.logHandler.flush()
 
-    tmp_noteDict: dict = {}           # term -> Note
+    tmp_noteDict: dict = {}           # term -> [Note]
     """for FillMissingValues only"""
+
+    @staticmethod
+    def _is_note_field_empty(note, field_name: str) -> bool:
+        try:
+            return not (note[field_name] or '').strip()
+        except Exception:
+            return True
+
+    def _collect_fill_missing_reasons(self, note, config: dict, media_dir: str) -> [str]:
+        reasons = []
+
+        # Core fields we always fill and rely on in templates.
+        for field_name in ('definition', 'uk', 'us', 'BrEPron', 'AmEPron'):
+            if self._is_note_field_empty(note, field_name):
+                reasons.append(f'{field_name}:empty')
+
+        # Optional fields controlled by card settings.
+        if config.get('definition_en') and self._is_note_field_empty(note, 'definition_en'):
+            reasons.append('definition_en:empty')
+        if config.get('exam_type') and self._is_note_field_empty(note, 'exam_type'):
+            reasons.append('exam_type:empty')
+
+        # Media fields: empty values or broken files.
+        if config.get('image'):
+            if self._is_note_field_empty(note, 'image'):
+                reasons.append('image:empty')
+            elif utils.is_image_file_missing(note['image'], media_dir):
+                reasons.append('image:file-missing')
+            elif utils.is_image_file_broken(note['image'], media_dir):
+                reasons.append('image:file-broken')
+
+        if config.get('pronunciation'):
+            if self._is_note_field_empty(note, 'pronunciation'):
+                reasons.append('pronunciation:empty')
+            elif utils.is_audio_file_missing(note['pronunciation'], media_dir):
+                reasons.append('pronunciation:file-missing')
+
+        # Sentence audio files can be damaged even when sentence text exists.
+        if config.get('sentence'):
+            for i in range(3):
+                key = f'sentence_speech{i}'
+                value = ''
+                try:
+                    value = note[key]
+                except KeyError:
+                    value = ''
+                if value and utils.is_audio_file_missing(value, media_dir):
+                    reasons.append(f'{key}:file-missing')
+                    break
+
+        return reasons
 
     @pyqtSlot()
     def on_btnFillMissingValues_clicked(self):
@@ -909,24 +1006,43 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         logger.info(f"Found ({len(noteIds)}) notes of type matching '{note_query}'")
         self.logHandler.flush()
 
-        if not askUser(f"This operation will take some time to fill missing field values for notes of type matching '{note_query}' ({len(noteIds)}). Continue?", defaultno=True):
-            logger.info(f"Aborted")
-            self.logHandler.flush()
-            return
-
-        # load all notes, and generate word list, as well as note dict
+        # load candidate notes only (missing selected fields or broken media files)
         wordList: [(SimpleWord, int)] = []      # [(SimpleWord, row)]
+        media_dir = mw.col.media.dir()
+        scan_counter = CounterGroup(total=len(noteIds))
         for noteId in noteIds:
             note = mw.col.getNote(noteId)
             term = note['term']
-            self.tmp_noteDict[term] = note
-            word, row = SimpleWord(term), len(wordList)
-            wordList.append((word, row))
+            reasons = self._collect_fill_missing_reasons(note, self.tmp_currentConfig, media_dir)
+            if not reasons:
+                scan_counter.inc_failed()
+                continue
+
+            logger.debug(f"[{term}] needs fill/repair: {reasons}")
+            self.tmp_noteDict.setdefault(term, []).append(note)
+            scan_counter.inc_success()
+
+            # Query once per unique term and update all notes sharing this term.
+            if len(self.tmp_noteDict[term]) == 1:
+                word, row = SimpleWord(term), len(wordList)
+                wordList.append((word, row))
 
         if not wordList:
-            logger.info(f"No words.")
+            logger.info(f"[All clear] No missing selected fields or broken media files.")
             self.logHandler.flush()
-            tooltip(f"No words.")
+            tooltip(f"Nothing to do.")
+            return
+
+        logger.info(
+            f"[Repair scan] scanned={scan_counter.total}, candidates={scan_counter.success}, healthy={scan_counter.failed}, unique_terms={len(wordList)}"
+        )
+
+        if not askUser(
+            f"This operation will query {len(wordList)} words to fill missing selected fields and repair missing media files. Continue?",
+            defaultno=True,
+        ):
+            logger.info(f"Aborted")
+            self.logHandler.flush()
             return
 
         # query words
@@ -937,6 +1053,11 @@ class Windows(QDialog, mainUI.Ui_Dialog):
     @pyqtSlot()
     def __on_allQueryDone_FillMissingValues(self):
         """for btnFillMissingValues"""
+        if self._isShuttingDown:
+            logger.info("[FillMissingValues] Window is shutting down. Skip post-query update.")
+            self.logHandler.flush()
+            return
+
         logger.info(f"[Query complete] Success: {len(self.querySuccessDict)}, Failed: {len(self.queryFailedDict)}")
         self.logHandler.flush()
         if self.queryFailedDict:
@@ -956,16 +1077,28 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             logger.info(f'Preferred Pronunciation: {PRON_TYPES[preferred_pron]}')
 
         self.logHandler.flush()
+        note_counter = CounterGroup(total=sum(len(v) for v in self.tmp_noteDict.values()))
         for row, word in self.querySuccessDict.items():
+            if self._isShuttingDown:
+                logger.info("[FillMissingValues] Interrupted by window shutdown during note updates.")
+                break
+
             term = word['term']
             logger.debug(f"word ({term}): {word}")
             # resolve image and audio information (for use in field values)
             image_task, audio_task, pron_type, is_fallback = self.get_asset_download_task(word, preferred_pron)
             # update note (fill missing field values)
-            existing_note = self.tmp_noteDict[term]
-            addNoteToDeck(None, None, self.tmp_currentConfig, word, PRON_TYPES[pron_type], existing_note, False)
+            existing_notes = self.tmp_noteDict.get(term, [])
+            for existing_note in existing_notes:
+                addNoteToDeck(None, None, self.tmp_currentConfig, word, PRON_TYPES[pron_type], existing_note, False)
+                note_counter.inc_success()
         mw.reset()
         self.logHandler.flush()
+        logger.info(
+            f"[Repair summary] queried={len(self.querySuccessDict)+len(self.queryFailedDict)}, "
+            f"query_success={len(self.querySuccessDict)}, query_failed={len(self.queryFailedDict)}, "
+            f"notes_updated={note_counter.success}/{note_counter.total}"
+        )
         logger.info(f"Done!")
         self.logHandler.flush()
 

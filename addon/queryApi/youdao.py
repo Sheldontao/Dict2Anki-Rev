@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from requests.adapters import HTTPAdapter
 from ..constants import HEADERS
 from ..misc import AbstractQueryAPI, SimpleWord
+from .langeek import LangeekImageResolver
 
 logger = logging.getLogger('dict2Anki.queryApi.youdao')
 __all__ = ['API']
@@ -168,6 +169,7 @@ class API(AbstractQueryAPI):
             self.session.headers = HEADERS
             self.session.mount('http://', HTTPAdapter(max_retries=self.retries))
             self.session.mount('https://', HTTPAdapter(max_retries=self.retries))
+        self.langeek = LangeekImageResolver(self.session, timeout=self.timeout)
 
     def query(self, word: SimpleWord) -> dict:
         queryResult = None
@@ -180,6 +182,9 @@ class API(AbstractQueryAPI):
             if 'simple' not in json_obj or 'word' not in json_obj['simple']:
                 logger.warning(f'[{word.term}] Youdao API response does not contain phonetic information. Full response: {json.dumps(json_obj, ensure_ascii=False)}')
             queryResult = self.parser(json_obj, word).result
+            if queryResult is not None:
+                # Always prefer Langeek page first-sense image.
+                queryResult['image'] = self.langeek.resolve(word.term)
         except Exception as e:
             logger.exception(e)
         finally:

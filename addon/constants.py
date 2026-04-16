@@ -1,4 +1,4 @@
-VERSION = 'v6.3.6k'
+VERSION = '7.0.0'
 RELEASE_URL = 'https://github.com/lixvbnet/Dict2Anki'
 VERSION_CHECK_API = 'https://api.github.com/repos/lixvbnet/Dict2Anki/releases/latest'
 WINDOW_TITLE = f'Dict2Anki {VERSION}'
@@ -15,6 +15,7 @@ LOG_FLUSH_INTERVAL = 3      # seconds
 
 # continue to use Dict2Anki 4.x model
 ASSET_FILENAME_PREFIX = "MG"
+NO_IMAGE_FIELD_TOKEN = "dict2anki:no-image"
 MODEL_FIELDS = [
     'term', 'definition',
     'definition_en',
@@ -75,102 +76,161 @@ class FieldGroup:
 
 
 def normal_card_template_qfmt(fg: FieldGroup):
-    return f"""\
+    _ = fg
+    return """\
 <table>
     <tr>
         <td>
-            <h1 class="term">{{{{term}}}}</h1>
-            <span>{fg.pronunciation}</span>
+            <h1 class="term">{{term}}{{pronunciation}}</h1>
             <div class="pronounce">
-                <span class="phonetic">UK[{{{{uk}}}}]</span>
-                <span class="phonetic">US[{{{{us}}}}]</span>
+                <span class="phonetic"
+                    ><a onclick="this.firstChild.play()"
+                        ><audio src="{{BrEPron}}"></audio>UK[{{uk}}]</a
+                    ></span
+                >
+                <span class="phonetic"
+                    ><a onclick="this.firstChild.play()"
+                        ><audio src="{{AmEPron}}"></audio>US[{{us}}]</a
+                    ></span
+                >
             </div>
-            <div class="definition">Tap To View</div>
+            <div class="definition"></div>
             <div class="definition_en"></div>
         </td>
-        <td style="width: 33%;">
-        </td>
+        <td style="width: 33%"></td>
     </tr>
 </table>
+
 <div class="divider"></div>
 <table>
-    <tr><td class="phrase">{fg.phrase[0][0]}</td><td>{fg.phrase[0][2]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[1][0]}</td><td>{fg.phrase[1][2]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[2][0]}</td><td>{fg.phrase[2][2]}</td></tr>
+    <tr>
+        <td class="phrase">{{phrase0}}</td>
+        <td><!-- {{pplaceHolder0}} --></td>
+    </tr>
+    <tr>
+        <td class="phrase">{{phrase1}}</td>
+        <td><!-- {{pplaceHolder1}} --></td>
+    </tr>
+    <tr>
+        <td class="phrase">{{phrase2}}</td>
+        <td><!-- {{pplaceHolder2}} --></td>
+    </tr>
 </table>
 <table>
     <tr>
         <td class="sentence">
-            {fg.sentence[0][0]}
-            {fg.sentence[0][3]}
+            {{sentence0}} {{#sentence0}}<a onclick="this.firstChild.play()"
+                ><audio src="{{sentence_speech0}}"></audio>▶︎</a
+            >{{/sentence0}}
         </td>
-        <td>{fg.sentence[0][2]}</td>
+        <td><!-- {{splaceHolder0}} --></td>
     </tr>
     <tr>
         <td class="sentence">
-            {fg.sentence[1][0]}
-            {fg.sentence[1][3]}
+            {{sentence1}} {{#sentence1}}<a onclick="this.firstChild.play()"
+                ><audio src="{{sentence_speech1}}"></audio>▶︎</a
+            >{{/sentence1}}
         </td>
-        <td>{fg.sentence[1][2]}</td>
+        <td><!-- {{splaceHolder1}} --></td>
     </tr>
     <tr>
         <td class="sentence">
-            {fg.sentence[2][0]}
-            {fg.sentence[2][3]}
+            {{sentence2}} {{#sentence2}}<a onclick="this.firstChild.play()"
+                ><audio src="{{sentence_speech2}}"></audio>▶︎</a
+            >{{/sentence2}}
         </td>
-        <td>{fg.sentence[2][2]}</td>
+        <td><!-- {{splaceHolder2}} --></td>
     </tr>
 </table>
 """
 
 
 def normal_card_template_afmt(fg: FieldGroup):
-    return f"""\
+    _ = fg
+    return """\
 <table>
     <tr>
         <td>
-        <h1 class="term">{{{{term}}}}</h1>
-            <span>{fg.pronunciation}</span>
+            <h1 class="term">
+                {{term}}{{pronunciation}}
+                <a
+                    onclick="event.stopPropagation()"
+                    href="eudic://dict/{{term}}"
+                >
+                    <img class="icon" src="_eudict_24.png" />
+                </a>
+                <a
+                    onclick="event.stopPropagation()"
+                    href="https://www.google.com/search?tbm=isch&q={{term}}"
+                >
+                    <img
+                        class="icon"
+                        src="https://img.icons8.com/color/28/google.png"
+                        alt="Google Icon"
+                    />
+                </a>
+            </h1>
             <div class="pronounce">
-                <span class="phonetic">UK[{{{{uk}}}}]</span>
-                <span class="phonetic">US[{{{{us}}}}]</span>
+                <span class="phonetic"
+                    ><a onclick="this.firstChild.play()"
+                        ><audio src="{{BrEPron}}"></audio>UK[{{uk}}]</a
+                    ></span
+                >
+                <span class="phonetic"
+                    ><a onclick="this.firstChild.play()"
+                        ><audio src="{{AmEPron}}"></audio>US[{{us}}]</a
+                    ></span
+                >
             </div>
-            <div class="definition">{{{{definition}}}}</div>
-            <div class="definition_en">{fg.definition_en}</div>
-            <div class="exam_type">{fg.exam_type}</div>
+            <div class="definition_en">{{definition_en}}</div>
+            <br />
+            <div class="definition">{{hint:definition}}</div>
+            <div class="exam_type">{{exam_type}}</div>
         </td>
-        <td style="width: 33%;">
-            {fg.image}
-        </td>
+        {{#image}}
+        <td style="width: 33%">{{image}}</td>
+        {{/image}}
     </tr>
 </table>
 <div class="divider"></div>
 <table>
-    <tr><td class="phrase">{fg.phrase[0][0]}</td><td>{fg.phrase[0][1]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[1][0]}</td><td>{fg.phrase[1][1]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[2][0]}</td><td>{fg.phrase[2][1]}</td></tr>
+    <tr>
+        <td class="phrase">{{phrase0}}</td>
+        <td>{{hint:phrase_explain0}}</td>
+    </tr>
+    <tr>
+        <td class="phrase">{{phrase1}}</td>
+        <td>{{hint:phrase_explain1}}</td>
+    </tr>
+    <tr>
+        <td class="phrase">{{phrase2}}</td>
+        <td>{{hint:phrase_explain2}}</td>
+    </tr>
 </table>
 <table>
     <tr>
         <td class="sentence">
-            {fg.sentence[0][0]}
-            {fg.sentence[0][3]}
+            {{sentence0}} {{#sentence0}}<a onclick="this.firstChild.play()"
+                ><audio src="{{sentence_speech0}}"></audio>▶︎</a
+            >{{/sentence0}}
         </td>
-        <td>{fg.sentence[0][1]}</td>
+        <td>{{hint:sentence_explain0}}</td>
     </tr>
     <tr>
         <td class="sentence">
-            {fg.sentence[1][0]}
-            {fg.sentence[1][3]}
+            {{sentence1}} {{#sentence1}}<a onclick="this.firstChild.play()"
+                ><audio src="{{sentence_speech1}}"></audio>▶︎</a
+            >{{/sentence1}}
         </td>
-        <td>{fg.sentence[1][1]}</td>
+        <td>{{hint:sentence_explain1}}</td>
     </tr>
     <tr>
         <td class="sentence">
-            {fg.sentence[2][0]}
-            {fg.sentence[2][3]}
+            {{sentence2}} {{#sentence2}}<a onclick="this.firstChild.play()"
+                ><audio src="{{sentence_speech2}}"></audio>▶︎</a
+            >{{/sentence2}}
         </td>
-        <td>{fg.sentence[2][1]}</td>
+        <td>{{hint:sentence_explain2}}</td>
     </tr>
 </table>
 """
@@ -232,7 +292,14 @@ CARD_TEMPLATE_CSS = """\
 .phonetic {
   font-size: 16px;
   font-family: "lucida sans unicode", arial, sans-serif;
-  color: #01848f;
+  color: #32a852;
+}
+.phonetic a {
+  color: inherit;
+  text-decoration: none;
+}
+.phonetic a:hover {
+  text-decoration: underline;
 }
 .term {
   margin-bottom: -5px;
@@ -249,6 +316,11 @@ CARD_TEMPLATE_CSS = """\
 .sentence {
   color: #01848f;
   padding-right: 1em;
+}
+.no-image {
+  color: #777;
+  font-size: 13px;
+  font-style: italic;
 }
 img {
   max-height: 300px;
@@ -278,5 +350,45 @@ def default_image_filename(term: str) -> str:
     return f"{ASSET_FILENAME_PREFIX}-{term}.jpg"
 
 
+def default_image_filename_by_url(term: str, image_url: str) -> str:
+    ext = '.jpg'
+    if image_url:
+        try:
+            parsed = urlparse(image_url)
+            path = parsed.path or ''
+            guessed = os.path.splitext(path)[1].lower()
+            if guessed in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                ext = guessed
+            else:
+                query = parse_qs(parsed.query or '')
+                image_type = (query.get('type') or query.get('format') or [''])[0].lower()
+                query_type_map = {
+                    'jpeg': '.jpg',
+                    'jpg': '.jpg',
+                    'png': '.png',
+                    'webp': '.webp',
+                    'gif': '.gif',
+                }
+                if image_type in query_type_map:
+                    ext = query_type_map[image_type]
+        except Exception:
+            pass
+    return f"{ASSET_FILENAME_PREFIX}-{term}{ext}"
+
+
 def default_audio_filename(term: str) -> str:
     return f"{ASSET_FILENAME_PREFIX}-{term}.mp3"
+
+
+def default_no_image_field_value() -> str:
+    return (
+        f'<div class="no-image">No image found in source dictionary.</div>'
+        f'<!-- {NO_IMAGE_FIELD_TOKEN} -->'
+    )
+
+
+def is_no_image_field_value(field_value: str) -> bool:
+    return bool(field_value) and (NO_IMAGE_FIELD_TOKEN in field_value)
+
+import os
+from urllib.parse import parse_qs, urlparse

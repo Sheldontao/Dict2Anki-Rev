@@ -1,5 +1,6 @@
 import re
 from .constants import *
+from .repair_logic import derive_missing_tags
 import logging
 
 logger = logging.getLogger('dict2Anki.noteManager')
@@ -196,6 +197,12 @@ def resetModelCardTemplates(modelObject, fg):
 
 def setNoteFieldValue(note, key: str, value: str, isNewNote: bool, overwrite: bool) -> bool:
     """set note field value. :return isWritten"""
+    try:
+        _ = note[key]
+    except KeyError:
+        logger.warning(f"[Skip] Field '{key}' does not exist in note type '{note.model().get('name', '')}'")
+        return False
+
     if not value:
         return False
     if isNewNote or overwrite:
@@ -205,6 +212,97 @@ def setNoteFieldValue(note, key: str, value: str, isNewNote: bool, overwrite: bo
         note[key] = value
         return True
     return False
+
+
+def _note_has_tag(note, tag: str) -> bool:
+    for method_name in ('has_tag', 'hasTag'):
+        method = getattr(note, method_name, None)
+        if callable(method):
+            try:
+                return bool(method(tag))
+            except Exception:
+                pass
+
+    tags = getattr(note, 'tags', None)
+    if isinstance(tags, str):
+        return tag in tags.split()
+    if isinstance(tags, list):
+        return tag in tags
+    return False
+
+
+def _note_remove_tag(note, tag: str) -> bool:
+    for method_name in ('remove_tag', 'removeTag', 'delTag'):
+        method = getattr(note, method_name, None)
+        if callable(method):
+            try:
+                method(tag)
+                return True
+            except Exception:
+                pass
+
+    tags = getattr(note, 'tags', None)
+    if isinstance(tags, str):
+        tag_list = [t for t in tags.split() if t != tag]
+        note.tags = ' '.join(tag_list)
+        return True
+    if isinstance(tags, list):
+        note.tags = [t for t in tags if t != tag]
+        return True
+    return False
+
+
+def _note_add_tag(note, tag: str) -> bool:
+    for method_name in ('add_tag', 'addTag'):
+        method = getattr(note, method_name, None)
+        if callable(method):
+            try:
+                method(tag)
+                return True
+            except Exception:
+                pass
+
+    tags = getattr(note, 'tags', None)
+    if isinstance(tags, str):
+        tag_set = set(tags.split())
+        tag_set.add(tag)
+        note.tags = ' '.join(sorted(tag_set))
+        return True
+    if isinstance(tags, list):
+        if tag not in tags:
+            tags.append(tag)
+        note.tags = tags
+        return True
+    return False
+
+
+def _note_list_tags(note) -> [str]:
+    tags = getattr(note, 'tags', None)
+    if isinstance(tags, str):
+        return [t for t in tags.split() if t]
+    if isinstance(tags, list):
+        return [t for t in tags if t]
+    return []
+
+
+def sync_missing_tags(note, word: dict) -> bool:
+    missing_fields = [f for f in (word.get('_missing_fields') or []) if isinstance(f, str) and f]
+    target_tags = derive_missing_tags(missing_fields)
+
+    current_missing_tags = {tag for tag in _note_list_tags(note) if tag.startswith('missing-')}
+    changed = False
+
+    for tag in sorted(current_missing_tags - target_tags):
+        if _note_remove_tag(note, tag):
+            logger.info(f"移除标签[{tag}]：{note['term']}")
+            changed = True
+
+    for tag in sorted(target_tags - current_missing_tags):
+        if _note_add_tag(note, tag):
+            logger.info(f"添加标签[{tag}]：{note['term']}")
+            changed = True
+
+    return changed
 
 
 def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existing_note=None, overwrite=False):
@@ -267,14 +365,13 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
         setNoteFieldValue(note, key, value, isNewNote, overwrite)
         # note['us'] = word['AmEPhonetic']
     
-    # Add BrEPron and AmEPron fields for custom note types
-    if note.model()['name'] == 'Dict2Anki-Listening':
-        if word['BrEPron']:
-            key, value = 'BrEPron', f"[sound:{word['BrEPron']}]"
-            setNoteFieldValue(note, key, value, isNewNote, overwrite)
-        if word['AmEPron']:
-            key, value = 'AmEPron', f"[sound:{word['AmEPron']}]"
-            setNoteFieldValue(note, key, value, isNewNote, overwrite)
+    # Keep pronunciation URLs in dedicated fields for template-level playback controls.
+    if word['BrEPron']:
+        key, value = 'BrEPron', word['BrEPron']
+        setNoteFieldValue(note, key, value, isNewNote, overwrite)
+    if word['AmEPron']:
+        key, value = 'AmEPron', word['AmEPron']
+        setNoteFieldValue(note, key, value, isNewNote, overwrite)
 
     # definition
     definitions = []
@@ -301,11 +398,26 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
         # note['definition_en'] = '<br>\n'.join(word['definition_en'])
 
     # image
+    key = 'image'
+    current_image_value = ''
+    try:
+        current_image_value = note[key]
+    except KeyError:
+        current_image_value = ''
+
     if word['image']:
-        imageFilename = default_image_filename(term)
-        key, value = 'image', f'<div><img src="{imageFilename}" /></div>'
-        setNoteFieldValue(note, key, value, isNewNote, overwrite)
+        imageFilename = default_image_filename_by_url(term, word['image'])
+        value = f'<div><img src="{imageFilename}" /></div>'
+        # Keep legacy notes healthy: if image filename pattern changed (e.g. wrong extension
+        # from old versions), rewrite image field even when not doing a global overwrite.
+        image_needs_repair = (not isNewNote) and (current_image_value != value)
+        replace_placeholder = is_no_image_field_value(current_image_value)
+        setNoteFieldValue(note, key, value, isNewNote, overwrite or image_needs_repair or replace_placeholder)
         # note['image'] = f'<div><img src="{imageFilename}" /></div>'
+    elif config.get('image'):
+        # Persist a no-image marker so later repair flows don't repeatedly query the same term.
+        value = default_no_image_field_value()
+        setNoteFieldValue(note, key, value, isNewNote, overwrite)
 
     # pronunciation
     if whichPron and whichPron != 'noPron' and word[whichPron]:
@@ -333,7 +445,18 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
             # Sentence may have changed over time.
             # To avoid sentence-speech mismatch, overwrite sentence info if sentence_speech is missing.
             # Also overwrite sentence info if term is not highlighted.
-            if not note[f'sentence_speech{i}'] or f"<b>{term}</b>" not in note[f'sentence{i}']:
+            sentence_speech_value = ""
+            sentence_value = ""
+            try:
+                sentence_speech_value = note[f'sentence_speech{i}']
+            except KeyError:
+                pass
+            try:
+                sentence_value = note[f'sentence{i}']
+            except KeyError:
+                pass
+
+            if not sentence_speech_value or f"<b>{term}</b>" not in sentence_value:
                 s_overwrite = True
 
             key, value = f'sentence{i}', sentence_tuple[0]
@@ -348,6 +471,8 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
                 setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
             # note[f'sentence{i}'], note[f'sentence_explain{i}'] = sentence_tuple
             # note[f'splaceHolder{i}'] = "Tap To View"
+
+    sync_missing_tags(note, word)
 
     if isNewNote:
         mw.col.addNote(note)

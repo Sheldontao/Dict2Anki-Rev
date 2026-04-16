@@ -33,12 +33,51 @@ def is_audio_file_missing(fieldValue: str, media_dir: str) -> bool:
     return is_media_file_missing(fieldValue, media_dir, get_audio)
 
 
+def is_image_file_broken(fieldValue: str, media_dir: str) -> bool:
+    filename = get_image(fieldValue)
+    if not fieldValue or not filename:
+        return False
+    filepath = os.path.join(media_dir, filename)
+    if not os.path.exists(filepath):
+        return False
+    return not _looks_like_supported_image(filepath)
+
+
 def is_media_file_missing(fieldValue: str, media_dir: str, f_get) -> bool:
     filename = f_get(fieldValue)
     if not fieldValue or not filename:
         return False
     filepath = os.path.join(media_dir, filename)
     return not os.path.exists(filepath)
+
+
+def _looks_like_supported_image(filepath: str) -> bool:
+    try:
+        with open(filepath, 'rb') as f:
+            head = f.read(32)
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            tail_len = min(16, size)
+            f.seek(-tail_len, os.SEEK_END)
+            tail = f.read(tail_len)
+    except Exception:
+        return False
+
+    if len(head) < 8:
+        return False
+
+    if size < 64:
+        return False
+
+    if head.startswith(b'\xff\xd8\xff'):
+        return tail.endswith(b'\xff\xd9')
+    if head.startswith(b'\x89PNG\r\n\x1a\n'):
+        return b'IEND' in tail
+    if head.startswith(b'GIF87a') or head.startswith(b'GIF89a'):
+        return True
+    if head.startswith(b'RIFF') and len(head) >= 12 and head[8:12] == b'WEBP':
+        return True
+    return False
 
 
 def read_words_from_file(filename: str) -> [[str]]:

@@ -2,11 +2,13 @@ import html
 import logging
 import os
 import requests
+from urllib.parse import urlparse
 from urllib3 import Retry
 from requests.adapters import HTTPAdapter
 from ..constants import HEADERS
 from ..misc import AbstractQueryAPI, SimpleWord
 from bs4 import BeautifulSoup
+from .langeek import LangeekImageResolver
 
 logger = logging.getLogger('search.queryApi.eudict')
 __all__ = ['API']
@@ -124,8 +126,20 @@ class Parser:
         if els:
             try:
                 img = els[0]
-                if 'title' not in img.attrs:
-                    ret = self.__fix_url_without_http(img['src'])
+                src = img.get('src', '').strip()
+                if not src:
+                    return None
+
+                # Placeholder image should not be imported as word image.
+                if 'dict_comment_img_thumbnail' in src:
+                    return None
+
+                normalized_src = self.__fix_url_without_http(src)
+                parsed = urlparse(normalized_src)
+
+                # Only accept absolute HTTP(S) URLs.
+                if parsed.scheme in ('http', 'https') and parsed.netloc:
+                    ret = normalized_src
             except KeyError:
                 pass
         return ret
@@ -255,6 +269,7 @@ class API(AbstractQueryAPI):
             self.session.headers = HEADERS
             self.session.mount('http://', HTTPAdapter(max_retries=self.retries))
             self.session.mount('https://', HTTPAdapter(max_retries=self.retries))
+        self.langeek = LangeekImageResolver(self.session, timeout=self.timeout)
 
     def query(self, word) -> dict:
         try:
@@ -270,7 +285,21 @@ class API(AbstractQueryAPI):
                 return youdao.API().query(word) # Instantiate Youdao API
             
             logger.debug(f'code:{rsp.status_code}- word:{word.term} text:{rsp.text[:100]}')
-            return self.parser(rsp.text, word).result
+            result = self.parser(rsp.text, word).result
+
+            # Eudic page often lacks stable English definitions in the static HTML.
+            # Enrich from Youdao only when key fields are missing.
+            if not result.get('definition_en'):
+                yd_result = youdao.API().query(word)
+                if yd_result:
+                    if yd_result.get('definition_en'):
+                        result['definition_en'] = yd_result['definition_en']
+
+            # Use Langeek first-sense image source.
+            # If Langeek has no image, keep it empty.
+            result['image'] = self.langeek.resolve(word.term)
+
+            return result
         except Exception as e:
             logger.exception(f'[{word.term}] Eudic query failed with an exception. Falling back to Youdao API.')
             return youdao.API().query(word) # Instantiate Youdao API

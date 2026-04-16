@@ -196,6 +196,7 @@ class AssetDownloadWorker(QObject):
     """Asset (Image and Audio) download worker"""
     start = pyqtSignal()
     tick = pyqtSignal()
+    itemDone = pyqtSignal(str, str)
     done = pyqtSignal()
     logger = logging.getLogger('dict2Anki.workers.AudioDownloadWorker')
     retries = Retry(total=5, backoff_factor=3, status_forcelist=[500, 502, 503, 504])
@@ -216,27 +217,33 @@ class AssetDownloadWorker(QObject):
 
         def __download_with_retry(filename, url):
             success = False
+            final_status = 'download-failed'
             for i in range(self.max_retry):
-                if __download(filename, url):
+                ok, status = __download(filename, url)
+                final_status = status
+                if ok:
                     success = True
                     break
                 if currentThread.isInterruptionRequested():
                     success = False
+                    final_status = 'download-failed'
                     break
                 self.logger.info(f"Retrying {i+1} time...")
             if success:
                 self.tick.emit()
+                self.itemDone.emit(filename, final_status)
             else:
+                self.itemDone.emit(filename, 'download-failed')
                 self.logger.error(f"FAILED to download {filename} after retrying {self.max_retry} times!")
                 self.logger.info("----------------------------------")
 
-        def __download(fileName, url) -> bool:
+        def __download(fileName, url) -> (bool, str):
             """Do NOT call this method directly. Use `__download_with_retry` instead."""
             filepath = os.path.join(self.target_dir, fileName)
             tmp_filepath = filepath + '.part'
             try:
                 if currentThread.isInterruptionRequested():
-                    return False
+                    return False, 'download-failed'
                 self.logger.info(f'Downloading {fileName}...')
                 is_image = fileName.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif'))
                 is_audio = fileName.lower().endswith(('.mp3', '.wav', '.ogg', '.m4a'))
@@ -247,7 +254,7 @@ class AssetDownloadWorker(QObject):
                             self.logger.warning(f"Existing image looks broken, redownloading: {fileName}")
                         else:
                             self.logger.info(f"[SKIP] {fileName} already exists")
-                            return True
+                            return True, 'skipped'
                     else:
                         self.logger.warning(f"Overwriting file {fileName}")
 
@@ -258,14 +265,14 @@ class AssetDownloadWorker(QObject):
 
                 if is_image and not content_type.startswith('image/'):
                     self.logger.warning(f"Unexpected content type for image {fileName}: {content_type}")
-                    return False
+                    return False, 'download-failed'
                 if is_audio and not (
                     content_type.startswith('audio/')
                     or 'octet-stream' in content_type
                     or content_type == ''
                 ):
                     self.logger.warning(f"Unexpected content type for audio {fileName}: {content_type}")
-                    return False
+                    return False, 'download-failed'
 
                 if os.path.exists(tmp_filepath):
                     os.remove(tmp_filepath)
@@ -280,7 +287,7 @@ class AssetDownloadWorker(QObject):
                 os.replace(tmp_filepath, filepath)
                 self.logger.info(f'[OK] {fileName} 下载完成')
                 self.logger.info("----------------------------------")
-                return True
+                return True, 'filled'
             except Exception as e:
                 self.logger.warning(f'下载{fileName}:{url}异常: {e}')
                 try:
@@ -288,7 +295,7 @@ class AssetDownloadWorker(QObject):
                         os.remove(tmp_filepath)
                 except Exception:
                     pass
-                return False
+                return False, 'download-failed'
 
         with ThreadPool(max_workers=3) as executor:
             # download images

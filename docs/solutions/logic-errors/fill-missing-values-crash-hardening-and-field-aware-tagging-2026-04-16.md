@@ -13,6 +13,7 @@ symptoms:
 root_cause: logic_error
 resolution_type: code_fix
 severity: high
+last_refreshed: 2026-04-16
 related_components:
   - testing_framework
 tags:
@@ -46,14 +47,14 @@ Implemented a scoped, safe, and state-driven fill pipeline.
 1. Candidate filtering before query (`addon/addonWindow.py`):
    - Added `_collect_fill_missing_reasons(note, config, media_dir)`.
    - Checks only plugin-managed fields and configured options.
-   - Includes media integrity checks (`utils.is_image_file_missing`, `utils.is_audio_file_missing`).
+   - Includes media integrity checks (`utils.is_image_file_missing`, `utils.is_image_file_broken`, `utils.is_audio_file_missing`).
    - Deduplicates by term and updates all notes sharing the same term.
 
 2. Progress bar behavior for fill query (`addon/addonWindow.py`):
    - `queryWords()` now sets `progressBar` max/value and increments via worker tick.
 
-3. Query-time missing classification (`addon/workers.py`):
-   - Added `QueryWorker._collect_missing_fields(query_result)`.
+3. Query-time missing classification (`addon/repair_logic.py`, `addon/workers.py`):
+   - Added `compute_missing_fields(query_result)` in shared repair logic.
    - Stores normalized missing result in `queryResult['_missing_fields']`.
 
 4. Field-aware missing tag synchronization (`addon/noteManager.py`):
@@ -63,18 +64,25 @@ Implemented a scoped, safe, and state-driven fill pipeline.
      - multiple missing fields -> `missing-several`
    - Removes obsolete `missing-*` tags before applying new state.
 
-5. Legacy field safety (`addon/noteManager.py`, `addon/addonWindow.py`):
+5. Legacy field safety and no-image stabilization (`addon/noteManager.py`, `addon/addonWindow.py`, `addon/constants.py`):
    - `setNoteFieldValue()` now guards missing fields and skips with warning.
    - Added guarded reads for sentence/audio fields in fill scan and sentence overwrite logic.
+   - When picture dictionary has no image, `image` is filled with a no-image marker (`dict2anki:no-image`) to prevent repeated re-query loops.
+
+6. Sentence audio URL backfill consistency (`addon/queryApi/eudict.py`, `addon/addonWindow.py`, `addon/noteManager.py`, `addon/repair_logic.py`):
+   - Fill scan now treats empty `sentence_speech{i}` with non-empty `sentence{i}` as repairable, and also detects missing media for existing `sentence_speech{i}` values.
+   - Fill updates now backfill `sentence_speech{i}` with source URL values directly instead of forcing local `[sound:...]` filename references.
+   - Eudict sentence parsing now supports newer HTML structures (including `lj_item` `voice`/`data` attributes) to recover sentence speech URLs for words like `swollen`.
 
 ## Why This Works
 The fill workflow is now driven by explicit repair criteria, not broad assumptions. Query scope shrinks to notes with real gaps or broken media, compatibility guards prevent crashes on older schemas, and missing tags are treated as computed state that is reconciled every update.
 
 ## Prevention
-- Keep missing detection centralized in helper functions (`_collect_fill_missing_reasons`, `_collect_missing_fields`).
+- Keep missing detection centralized in helper functions (`_collect_fill_missing_reasons`, `compute_missing_fields`).
 - Treat `missing-*` tags as derived state and always sync (add + remove), never append-only.
 - Use guarded field access in all note update paths where legacy note types may exist.
-- Keep media file existence checks in repair workflows, not just empty-field checks.
+- Keep media integrity checks in repair workflows (missing + broken), not just empty-field checks.
+- For sentence audio backfill, prefer durable source URLs in `sentence_speech{i}` over local downloaded filenames when templates consume URL-based playback.
 
 ## Related Issues
 - None in `docs/solutions/` at creation time (knowledge store initialized by this doc).

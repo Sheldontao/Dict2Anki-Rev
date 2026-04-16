@@ -1,8 +1,9 @@
 import html
 import logging
 import os
+import base64
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote_plus, urlencode
 from urllib3 import Retry
 from requests.adapters import HTTPAdapter
 from ..constants import HEADERS
@@ -25,6 +26,42 @@ class Parser:
             return 'https:' + url
         else:
             return url
+
+    @staticmethod
+    def __build_sentence_speech_url_from_plain_text(sentence_text: str) -> str:
+        sentence_text = (sentence_text or '').strip()
+        if not sentence_text:
+            return ''
+        txt = 'QYN' + base64.b64encode(sentence_text.encode('utf-8')).decode('ascii')
+        return 'https://api.frdic.com/api/v2/speech/speakweb?' + urlencode({'langid': 'en', 'txt': txt})
+
+    def __extract_sentence_speech_url(self, item_el, sentence_text: str) -> str:
+        # 1) Legacy/old structure: explicit voice button with data-rel
+        voice_button = item_el.select_one('a.voice-js')
+        if voice_button and voice_button.has_attr('data-rel'):
+            rel = html.unescape(voice_button['data-rel']).strip()
+            if rel:
+                if rel.startswith('http://') or rel.startswith('https://'):
+                    return rel
+                return 'https://api.frdic.com/api/v2/speech/speakweb?' + rel
+
+        # 2) Newer structure: voice attribute on lj_item (sometimes full URL/query string)
+        voice_attr = html.unescape((item_el.get('voice') or '').strip())
+        if voice_attr:
+            if voice_attr.startswith('http://') or voice_attr.startswith('https://'):
+                return voice_attr
+            if 'langid=' in voice_attr or 'txt=' in voice_attr:
+                return 'https://api.frdic.com/api/v2/speech/speakweb?' + voice_attr
+
+        # 3) Fallback: derive from data attribute plain sentence text
+        data_attr = (item_el.get('data') or '').strip()
+        if data_attr:
+            plain_sentence = unquote_plus(data_attr)
+            if plain_sentence:
+                return self.__build_sentence_speech_url_from_plain_text(plain_sentence)
+
+        # 4) Last fallback: build from rendered sentence text
+        return self.__build_sentence_speech_url_from_plain_text(sentence_text)
 
     @property
     def definition(self) -> list:
@@ -89,7 +126,6 @@ class Parser:
     def sentence(self) -> list:
         els = self._soap.select('div #ExpLJchild .lj_item')
         ret = []
-        url_prefix = 'https://api.frdic.com/api/v2/speech/speakweb?'
         for el in els:
             try:
                 sentence_p_tag = el.select_one('p.line')
@@ -101,18 +137,9 @@ class Parser:
                     continue
                 sentence_translation = sentence_translation_tag.get_text(strip=True)
 
-                sentence_speech = ""
-                
-                # Find and process the voice button
-                voice_button = el.select_one('a.voice-js')
-
-                if voice_button and voice_button.has_attr('data-rel'):
-                    data_rel = html.unescape(voice_button['data-rel'])
-                    sentence_speech = url_prefix + data_rel
-                    # Remove the button before getting the HTML
-                    voice_button.decompose()
-
                 sentence_html = "".join([str(c) for c in sentence_p_tag.contents]).strip()
+                plain_sentence = sentence_p_tag.get_text(" ", strip=True)
+                sentence_speech = self.__extract_sentence_speech_url(el, plain_sentence)
                 ret.append((sentence_html, sentence_translation, sentence_speech))
             except Exception as e:
                 logger.error(f"[{self.word.term}] Error parsing sentence: {e}")

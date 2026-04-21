@@ -16,6 +16,7 @@ LOG_FLUSH_INTERVAL = 3      # seconds
 # continue to use Dict2Anki 4.x model
 ASSET_FILENAME_PREFIX = "MG"
 NO_IMAGE_FIELD_TOKEN = "dict2anki:no-image"
+NO_NOTES_FIELD_TOKEN = "dict2anki:no-notes"
 MODEL_FIELDS = [
     'term', 'definition',
     'definition_en',
@@ -322,6 +323,11 @@ CARD_TEMPLATE_CSS = """\
   font-size: 13px;
   font-style: italic;
 }
+.no-notes {
+  color: #777;
+  font-size: 13px;
+  font-style: italic;
+}
 img {
   max-height: 300px;
 }
@@ -389,6 +395,17 @@ def default_no_image_field_value() -> str:
 
 def is_no_image_field_value(field_value: str) -> bool:
     return bool(field_value) and (NO_IMAGE_FIELD_TOKEN in field_value)
+
+
+def default_no_notes_field_value() -> str:
+    return (
+        f'<div class="no-notes">No notes found in source dictionary.</div>'
+        f'<!-- {NO_NOTES_FIELD_TOKEN} -->'
+    )
+
+
+def is_no_notes_field_value(field_value: str) -> bool:
+    return bool(field_value) and (NO_NOTES_FIELD_TOKEN in field_value)
 
 import os
 from urllib.parse import parse_qs, urlparse

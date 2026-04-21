@@ -36,6 +36,8 @@ class Eudict(AbstractDictionary):
         rsp = requests.get('https://my.eudic.net/studylist', cookies=cookie, headers=HEADERS)
         self.indexSoup = BeautifulSoup(rsp.text, features="html.parser")
         cookiesJar = requests.utils.cookiejar_from_dict(cookie, cookiejar=None, overwrite=True)
+        for cookie_item in cookiesJar:
+            cookie_item.domain = '.eudic.net'
         self.session.cookies = cookiesJar
         return True
 

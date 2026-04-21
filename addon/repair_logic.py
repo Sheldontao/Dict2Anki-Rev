@@ -43,6 +43,9 @@ def compute_missing_fields(query_result: dict) -> List[str]:
     if not query_result.get('image'):
         missing.append('image')
 
+    if not query_result.get('notes'):
+        missing.append('notes')
+
     has_phonetic = bool(query_result.get('AmEPhonetic') or query_result.get('BrEPhonetic'))
     if not has_phonetic:
         missing.append('phonetic')

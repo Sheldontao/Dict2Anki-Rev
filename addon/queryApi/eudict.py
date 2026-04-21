@@ -258,6 +258,9 @@ class Parser:
 
     @property
     def notes(self) -> str:
+        # ExpNote is injected client-side via /dicts/CustomizeInfo XHR; the static
+        # HTML never contains it. API.query() fills this field; this property is
+        # kept as a defensive fallback in case server-side rendering returns.
         el = self._soap.select_one('div #ExpNotechild')
         if el:
             text = el.get_text(strip=True)
@@ -321,9 +324,31 @@ class API(AbstractQueryAPI):
                 else:
                     logger.warning(f'[{word.term}] Eudic did not return a dictionary page (e.g., homepage or "not found"). Falling back to Youdao API.')
                 return youdao.API().query(word) # Instantiate Youdao API
-            
+
             logger.debug(f'code:{rsp.status_code}- word:{word.term} text:{rsp.text[:100]}')
             result = self.parser(rsp.text, word).result
+
+            # Personal notes (ExpNote) are injected client-side via this XHR, not
+            # rendered into the main HTML. Fetch them separately so they can be
+            # written into the Anki {{notes}} field.
+            page_status_el = soup.select_one('#page-status')
+            page_status = page_status_el.get('value', '') if page_status_el else ''
+            if page_status:
+                try:
+                    ci_rsp = self.session.get(
+                        'https://dict.eudic.net/dicts/CustomizeInfo',
+                        params={'status': page_status},
+                        timeout=self.timeout,
+                    )
+                    ci_data = ci_rsp.json()
+                    if isinstance(ci_data, list) and len(ci_data) > 3:
+                        note_html = (ci_data[3] or '').strip()
+                        if note_html.startswith('"') and note_html.endswith('"'):
+                            note_html = note_html[1:-1]
+                        if note_html:
+                            result['notes'] = note_html
+                except Exception as ci_err:
+                    logger.warning(f'[{word.term}] CustomizeInfo fetch failed: {ci_err}')
 
             # Eudic page often lacks stable English definitions in the static HTML.
             # Enrich from Youdao only when key fields are missing.

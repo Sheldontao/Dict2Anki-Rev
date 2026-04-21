@@ -257,6 +257,16 @@ class Parser:
         return [el.get_text(strip=True) for el in els]
 
     @property
+    def notes(self) -> str:
+        el = self._soap.select_one('div #ExpNotechild')
+        if el:
+            text = el.get_text(strip=True)
+            if text.startswith('"') and text.endswith('"'):
+                text = text[1:-1]
+            return text if text else None
+        return None
+
+    @property
     def result(self):
         return {
             'term': self.word.term,
@@ -270,6 +280,7 @@ class Parser:
             'phrase': self.phrase,
             'sentence': self.sentence,
             'image': self.image,
+            'notes': self.notes,
             'BrEPhonetic': self.BrEPhonetic,
             'AmEPhonetic': self.AmEPhonetic,
             'BrEPron': self.BrEPron,

@@ -25,7 +25,7 @@ MODEL_FIELDS = [
     'pplaceHolder0', 'pplaceHolder1', 'pplaceHolder2',
     'splaceHolder0', 'splaceHolder1', 'splaceHolder2',
     'image', 'pronunciation',
-    'group', 'exam_type', 'modifiedTime',
+    'group', 'exam_type', 'notes', 'modifiedTime',
 ]
 CARD_SETTINGS = ['definition_en', 'image', 'pronunciation', 'phrase', 'sentence', 'exam_type']
 

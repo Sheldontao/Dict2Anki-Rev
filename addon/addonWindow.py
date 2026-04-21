@@ -976,6 +976,10 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         if config.get('exam_type') and self._is_note_field_empty(note, 'exam_type'):
             reasons.append('exam_type:empty')
 
+        # Notes: always fill (placeholder persisted when source has none, so repeat queries are bounded).
+        if self._is_note_field_empty(note, 'notes'):
+            reasons.append('notes:empty')
+
         # Media fields: empty values or broken files.
         if config.get('image'):
             if self._is_note_field_empty(note, 'image'):

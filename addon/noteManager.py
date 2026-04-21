@@ -397,6 +397,23 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
         setNoteFieldValue(note, key, value, isNewNote, overwrite)
         # note['definition_en'] = '<br>\n'.join(word['definition_en'])
 
+    # notes (personal notes from Eudic ExpNote, fetched via CustomizeInfo XHR)
+    key = 'notes'
+    current_notes_value = ''
+    try:
+        current_notes_value = note[key]
+    except KeyError:
+        current_notes_value = ''
+
+    if word.get('notes'):
+        value = word['notes']
+        replace_placeholder = is_no_notes_field_value(current_notes_value)
+        setNoteFieldValue(note, key, value, isNewNote, overwrite or replace_placeholder)
+    else:
+        # Persist a no-notes marker so later repair flows don't repeatedly query the same term.
+        value = default_no_notes_field_value()
+        setNoteFieldValue(note, key, value, isNewNote, overwrite)
+
     # image
     key = 'image'
     current_image_value = ''

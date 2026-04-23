@@ -215,6 +215,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.noPronRadioButton.setChecked(config['noPron'])
         self.BrEPronRadioButton.setChecked(config['BrEPron'])
         self.AmEPronRadioButton.setChecked(config['AmEPron'])
+        self.rateLimitComboBox.setCurrentText(str(config.get('congest', DEFAULT_CONGEST)))
 
         # card settings
         self.definitionEnCheckBox.setChecked(config['definition_en'])
@@ -268,7 +269,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             phrase=self.phraseCheckBox.isChecked(),
             sentence=self.sentenceCheckBox.isChecked(),
             exam_type=self.examTypeCheckBox.isChecked(),
-            congest=int((self.currentConfig or {}).get('congest', DEFAULT_CONGEST)),
+            congest=int(self.rateLimitComboBox.currentText()),
         )
         configChanged, cardSettingsChanged = self._saveConfig(currentConfig)
         self.currentConfig = currentConfig
@@ -852,6 +853,13 @@ class Windows(QDialog, mainUI.Ui_Dialog):
     tmp_currentConfig = None
     """for DownloadMissingAssets or FillMissingValues only"""
 
+    def _apply_test_mode_limit(self, wordList: list) -> list:
+        if self.testModeCheckBox.isChecked():
+            original_count = len(wordList)
+            wordList = wordList[:100]
+            logger.info(f"[Test mode] Limited to first 100 words ({original_count} -> {len(wordList)})")
+        return wordList
+
     @pyqtSlot()
     def on_btnDownloadMissingAssets_clicked(self):
         """Download missing assets for all notes of type Dict2Anki in ALL decks"""
@@ -900,6 +908,8 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             logger.info(f"Aborted")
             self.logHandler.flush()
             return
+
+        wordList = self._apply_test_mode_limit(wordList)
 
         # query words
         self.querySuccessDict = {}
@@ -986,13 +996,13 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         if config.get('exam_type') and self._is_note_field_empty(note, 'exam_type'):
             reasons.append('exam_type:empty')
 
-        # Notes: always fill (placeholder persisted when source has none, so repeat queries are bounded).
+        # Notes: only fill when truly empty — placeholder markers are handled by Fill Placeholder.
         notes_value = ''
         try:
             notes_value = note['notes']
         except KeyError:
             pass
-        if not notes_value or not notes_value.strip() or is_no_notes_field_value(notes_value):
+        if not notes_value or not notes_value.strip():
             reasons.append('notes:empty')
 
         # Media fields: empty values or broken files.
@@ -1179,6 +1189,8 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             tooltip(f"Nothing to do.")
             return
 
+        wordList = self._apply_test_mode_limit(wordList)
+
         logger.info(
             f"[Repair scan] scanned={scan_counter.total}, candidates={scan_counter.success}, healthy={scan_counter.failed}, unique_terms={len(wordList)}"
         )
@@ -1268,6 +1280,8 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             self.logHandler.flush()
             tooltip(f"Nothing to do.")
             return
+
+        wordList = self._apply_test_mode_limit(wordList)
 
         logger.info(
             f"[Placeholder scan] scanned={scan_counter.total}, candidates={scan_counter.success}, healthy={scan_counter.failed}, unique_terms={len(wordList)}"

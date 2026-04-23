@@ -408,11 +408,18 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
     if word.get('notes'):
         value = word['notes']
         replace_placeholder = is_no_notes_field_value(current_notes_value)
+        logger.info(f"[{term}] notes from API, value_len={len(value)}, replace_placeholder={replace_placeholder}")
         setNoteFieldValue(note, key, value, isNewNote, overwrite or replace_placeholder)
     else:
-        # Persist a no-notes marker so later repair flows don't repeatedly query the same term.
-        value = default_no_notes_field_value()
-        setNoteFieldValue(note, key, value, isNewNote, overwrite)
+        # Only persist a no-notes marker if the field is empty or already a placeholder.
+        # If it already has real content, don't overwrite it (the API may have legitimately
+        # returned no notes for this query - the user's existing content is still valid).
+        if current_notes_value and not is_no_notes_field_value(current_notes_value):
+            logger.debug(f"[{term}] notes field already has content, skip writing placeholder")
+        else:
+            value = default_no_notes_field_value()
+            logger.info(f"[{term}] writing no-notes placeholder, current_value={repr(current_notes_value)[:50]}")
+            setNoteFieldValue(note, key, value, isNewNote, overwrite)
 
     # image
     key = 'image'
@@ -432,9 +439,12 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
         setNoteFieldValue(note, key, value, isNewNote, overwrite or image_needs_repair or replace_placeholder)
         # note['image'] = f'<div><img src="{imageFilename}" /></div>'
     elif config.get('image'):
-        # Persist a no-image marker so later repair flows don't repeatedly query the same term.
-        value = default_no_image_field_value()
-        setNoteFieldValue(note, key, value, isNewNote, overwrite)
+        # Only persist a no-image marker if the field is empty or already a placeholder.
+        if current_image_value and not is_no_image_field_value(current_image_value):
+            logger.debug(f"[{term}] image field already has content, skip writing placeholder")
+        else:
+            value = default_no_image_field_value()
+            setNoteFieldValue(note, key, value, isNewNote, overwrite)
 
     # pronunciation
     if whichPron and whichPron != 'noPron' and word[whichPron]:
@@ -450,10 +460,7 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
             setNoteFieldValue(note, key, value, isNewNote, overwrite)
             key, value = f'phrase_explain{i}', phrase_tuple[1]
             setNoteFieldValue(note, key, value, isNewNote, overwrite)
-            key, value = f'pplaceHolder{i}', "Tap To View"
-            setNoteFieldValue(note, key, value, isNewNote, overwrite)
             # note[f'phrase{i}'], note[f'phrase_explain{i}'] = phrase_tuple
-            # note[f'pplaceHolder{i}'] = "Tap To View"
 
     # sentence
     if word['sentence']:
@@ -484,13 +491,10 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
             setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
             key, value = f'sentence_explain{i}', sentence_tuple[1]
             setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
-            key, value = f'splaceHolder{i}', "Tap To View"
-            setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
             if sentence_tuple[2]:
                 key, value = f'sentence_speech{i}', sentence_tuple[2]
                 setNoteFieldValue(note, key, value, isNewNote, s_overwrite)
             # note[f'sentence{i}'], note[f'sentence_explain{i}'] = sentence_tuple
-            # note[f'splaceHolder{i}'] = "Tap To View"
 
     sync_missing_tags(note, word)
 

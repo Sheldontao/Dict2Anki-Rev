@@ -1,4 +1,4 @@
-VERSION = '7.0.0'
+VERSION = '7.1.0'
 RELEASE_URL = 'https://github.com/lixvbnet/Dict2Anki'
 VERSION_CHECK_API = 'https://api.github.com/repos/lixvbnet/Dict2Anki/releases/latest'
 WINDOW_TITLE = f'Dict2Anki {VERSION}'
@@ -18,15 +18,13 @@ ASSET_FILENAME_PREFIX = "MG"
 NO_IMAGE_FIELD_TOKEN = "dict2anki:no-image"
 NO_NOTES_FIELD_TOKEN = "dict2anki:no-notes"
 MODEL_FIELDS = [
-    'term', 'definition',
+    'term', 'notes', 'definition',
     'definition_en',
-    'uk', 'us', 'BrEPron', 'AmEPron', # Added BrEPron and AmEPron
+    'uk', 'us', 'BrEPron', 'AmEPron',
     'phrase0', 'phrase1', 'phrase2', 'phrase_explain0', 'phrase_explain1', 'phrase_explain2',
     'sentence0', 'sentence1', 'sentence2', 'sentence_explain0', 'sentence_explain1', 'sentence_explain2', 'sentence_speech0', 'sentence_speech1', 'sentence_speech2',
-    'pplaceHolder0', 'pplaceHolder1', 'pplaceHolder2',
-    'splaceHolder0', 'splaceHolder1', 'splaceHolder2',
     'image', 'pronunciation',
-    'group', 'exam_type', 'notes', 'modifiedTime',
+    'group', 'exam_type', 'modifiedTime',
 ]
 CARD_SETTINGS = ['definition_en', 'image', 'pronunciation', 'phrase', 'sentence', 'exam_type']
 
@@ -37,14 +35,14 @@ class FieldGroup:
         self.image = "{{image}}"
         self.pronunciation = "{{pronunciation}}"
         self.phrase = [
-            ("{{phrase0}}", "{{phrase_explain0}}", "{{pplaceHolder0}}"),
-            ("{{phrase1}}", "{{phrase_explain1}}", "{{pplaceHolder1}}"),
-            ("{{phrase2}}", "{{phrase_explain2}}", "{{pplaceHolder2}}"),
+            ("{{phrase0}}", "{{phrase_explain0}}"),
+            ("{{phrase1}}", "{{phrase_explain1}}"),
+            ("{{phrase2}}", "{{phrase_explain2}}"),
         ]
         self.sentence = [
-            ("{{sentence0}}", "{{sentence_explain0}}", "{{splaceHolder0}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech0}}"></audio>▶︎</a>'),
-            ("{{sentence1}}", "{{sentence_explain1}}", "{{splaceHolder1}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech1}}"></audio>▶︎</a>'),
-            ("{{sentence2}}", "{{sentence_explain2}}", "{{splaceHolder2}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech2}}"></audio>▶︎</a>'),
+            ("{{sentence0}}", "{{sentence_explain0}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech0}}"></audio>▶︎</a>'),
+            ("{{sentence1}}", "{{sentence_explain1}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech1}}"></audio>▶︎</a>'),
+            ("{{sentence2}}", "{{sentence_explain2}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech2}}"></audio>▶︎</a>'),
         ]
         self.exam_type = "{{exam_type}}"
 
@@ -53,15 +51,15 @@ class FieldGroup:
             raise RuntimeError(f"Unexpected field: {field}. Must be in {CARD_SETTINGS}!")
         if field == 'phrase':
             setattr(self, field, [
-                ("", "", ""),
-                ("", "", ""),
-                ("", "", "")
+                ("", ""),
+                ("", ""),
+                ("", "")
             ])
         elif field == 'sentence':
             setattr(self, field, [
-                ("", "", "", ""),
-                ("", "", "", ""),
-                ("", "", "", "")
+                ("", "", ''),
+                ("", "", ''),
+                ("", "", '')
             ])
         else:
             setattr(self, field, "")
@@ -106,15 +104,15 @@ def normal_card_template_qfmt(fg: FieldGroup):
 <table>
     <tr>
         <td class="phrase">{{phrase0}}</td>
-        <td><!-- {{pplaceHolder0}} --></td>
+        <td>{{hint:phrase_explain0}}</td>
     </tr>
     <tr>
         <td class="phrase">{{phrase1}}</td>
-        <td><!-- {{pplaceHolder1}} --></td>
+        <td>{{hint:phrase_explain1}}</td>
     </tr>
     <tr>
         <td class="phrase">{{phrase2}}</td>
-        <td><!-- {{pplaceHolder2}} --></td>
+        <td>{{hint:phrase_explain2}}</td>
     </tr>
 </table>
 <table>
@@ -124,7 +122,7 @@ def normal_card_template_qfmt(fg: FieldGroup):
                 ><audio src="{{sentence_speech0}}"></audio>▶︎</a
             >{{/sentence0}}
         </td>
-        <td><!-- {{splaceHolder0}} --></td>
+        <td>{{hint:sentence_explain0}}</td>
     </tr>
     <tr>
         <td class="sentence">
@@ -132,7 +130,7 @@ def normal_card_template_qfmt(fg: FieldGroup):
                 ><audio src="{{sentence_speech1}}"></audio>▶︎</a
             >{{/sentence1}}
         </td>
-        <td><!-- {{splaceHolder1}} --></td>
+        <td>{{hint:sentence_explain1}}</td>
     </tr>
     <tr>
         <td class="sentence">
@@ -140,7 +138,7 @@ def normal_card_template_qfmt(fg: FieldGroup):
                 ><audio src="{{sentence_speech2}}"></audio>▶︎</a
             >{{/sentence2}}
         </td>
-        <td><!-- {{splaceHolder2}} --></td>
+        <td>{{hint:sentence_explain2}}</td>
     </tr>
 </table>
 """
@@ -257,14 +255,14 @@ def backwards_card_template_qfmt(fg: FieldGroup):
 </table>
 <div class="divider"></div>
 <table>
-    <tr><td class="phrase">{fg.phrase[0][2]}</td><td>{fg.phrase[0][1]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[1][2]}</td><td>{fg.phrase[1][1]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[2][2]}</td><td>{fg.phrase[2][1]}</td></tr>
+    <tr><td class="phrase">{fg.phrase[0][0]}</td><td>{fg.phrase[0][1]}</td></tr>
+    <tr><td class="phrase">{fg.phrase[1][0]}</td><td>{fg.phrase[1][1]}</td></tr>
+    <tr><td class="phrase">{fg.phrase[2][0]}</td><td>{fg.phrase[2][1]}</td></tr>
 </table>
 <table>
-    <tr><td class="sentence">{fg.sentence[0][2]}</td><td>{fg.sentence[0][1]}</td></tr>
-    <tr><td class="sentence">{fg.sentence[1][2]}</td><td>{fg.sentence[1][1]}</td></tr>
-    <tr><td class="sentence">{fg.sentence[2][2]}</td><td>{fg.sentence[2][1]}</td></tr>
+    <tr><td class="sentence">{fg.sentence[0][0]}</td><td>{fg.sentence[0][1]}</td></tr>
+    <tr><td class="sentence">{fg.sentence[1][0]}</td><td>{fg.sentence[1][1]}</td></tr>
+    <tr><td class="sentence">{fg.sentence[2][0]}</td><td>{fg.sentence[2][1]}</td></tr>
 </table>
 """
 

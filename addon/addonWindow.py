@@ -832,12 +832,17 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.printSyncReport()
         self.logHandler.flush()
 
-    def queryWords(self, wordList: [(SimpleWord, int)], dictAPI, all_done_func):
+    def queryWords(self, wordList: [(SimpleWord, int)], dictAPI, all_done_func, authenticated_session=None):
         self.progressBar.setValue(0)
         self.progressBar.setMaximum(len(wordList))
         congest = AddonConfig.from_raw(self.tmp_currentConfig or {}).congest
         logger.info(f"查询限流: {congest} req/min")
-        self.queryWorker = QueryWorker(wordList, dictAPI(), congest_per_minute=congest)
+        # Use authenticated session if provided (for FillMissingValues/FillPlaceholder to access protected resources like CustomizeInfo)
+        if authenticated_session:
+            api_instance = dictAPI(session=authenticated_session)
+        else:
+            api_instance = dictAPI()
+        self.queryWorker = QueryWorker(wordList, api_instance, congest_per_minute=congest)
         self.queryWorker.thisRowDone.connect(self.on_thisRowDone)
         self.queryWorker.thisRowFailed.connect(self.on_thisRowFailed)
         self.queryWorker.tick.connect(lambda: self.progressBar.setValue(self.progressBar.value() + 1))
@@ -899,12 +904,17 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         # query words
         self.querySuccessDict = {}
         self.queryFailedDict = {}
-        self.queryWords(wordList, apis[self.tmp_currentConfig['selectedApi']], self.__on_allQueryDone_DownloadMissingAssets)
+        self.tmp_wordList = wordList
+        auth_session = self.selectedDict.session if self.selectedDict else None
+        self.queryWords(wordList, apis[self.tmp_currentConfig['selectedApi']], self.__on_allQueryDone_DownloadMissingAssets, authenticated_session=auth_session)
 
     @pyqtSlot()
     def __on_allQueryDone_DownloadMissingAssets(self):
         """for btnDownloadMissingAssets"""
+        failed_words = [self.tmp_wordList[row][0].term for row in self.queryFailedDict.keys()]
         logger.info(f"[Query complete] Success: {len(self.querySuccessDict)}, Failed: {len(self.queryFailedDict)}")
+        if failed_words:
+            logger.warning(f"Failed words: {', '.join(failed_words)}")
         if self.queryFailedDict:
             logger.warning(f"{len(self.queryFailedDict)} words query failed.")
             if not askUser(f"{len(self.queryFailedDict)} words query failed. Continue anyway?"):
@@ -977,7 +987,12 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             reasons.append('exam_type:empty')
 
         # Notes: always fill (placeholder persisted when source has none, so repeat queries are bounded).
-        if self._is_note_field_empty(note, 'notes'):
+        notes_value = ''
+        try:
+            notes_value = note['notes']
+        except KeyError:
+            pass
+        if not notes_value or not notes_value.strip() or is_no_notes_field_value(notes_value):
             reasons.append('notes:empty')
 
         # Media fields: empty values or broken files.
@@ -1022,6 +1037,31 @@ class Windows(QDialog, mainUI.Ui_Dialog):
                 utils.is_audio_file_missing,
             )
         )
+
+        return reasons
+
+    def _collect_placeholder_reasons(self, note, config: dict, media_dir: str) -> [str]:
+        """Check for placeholder values that should be re-queried."""
+        reasons = []
+
+        # Check image placeholder
+        if config.get('image'):
+            image_value = ''
+            try:
+                image_value = note['image']
+            except KeyError:
+                pass
+            if image_value and is_no_image_field_value(image_value):
+                reasons.append('image:placeholder')
+
+        # Check notes placeholder
+        notes_value = ''
+        try:
+            notes_value = note['notes']
+        except KeyError:
+            pass
+        if notes_value and is_no_notes_field_value(notes_value):
+            reasons.append('notes:placeholder')
 
         return reasons
 
@@ -1154,7 +1194,10 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         # query words
         self.querySuccessDict = {}
         self.queryFailedDict = {}
-        self.queryWords(wordList, apis[self.tmp_currentConfig['selectedApi']], self.__on_allQueryDone_FillMissingValues)
+        self.tmp_wordList = wordList
+        # Use authenticated session if available, otherwise create new API instance
+        auth_session = self.selectedDict.session if self.selectedDict else None
+        self.queryWords(wordList, apis[self.tmp_currentConfig['selectedApi']], self.__on_allQueryDone_FillMissingValues, authenticated_session=auth_session)
 
     @pyqtSlot()
     def __on_allQueryDone_FillMissingValues(self):
@@ -1164,7 +1207,10 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             self.logHandler.flush()
             return
 
+        failed_words = [self.tmp_wordList[row][0].term for row in self.queryFailedDict.keys()]
         logger.info(f"[Query complete] Success: {len(self.querySuccessDict)}, Failed: {len(self.queryFailedDict)}")
+        if failed_words:
+            logger.warning(f"Failed words: {', '.join(failed_words)}")
         self.logHandler.flush()
         if self.queryFailedDict:
             logger.warning(f"{len(self.queryFailedDict)} words query failed.")
@@ -1184,6 +1230,178 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
         self.logHandler.flush()
         self._apply_fill_missing_values_updates(preferred_pron)
+
+    @pyqtSlot()
+    def on_btnFillPlaceholder_clicked(self):
+        """Re-query fields that have placeholder values (no-image, no-notes, etc.)."""
+        self.tmp_noteDict = {}
+        self.tmp_fill_sentence_audio_status = {}
+        self.tmp_fill_sentence_audio_filename = {}
+        self.tmp_fill_audio_download_status = {}
+        self.tmp_currentConfig = self.getAndSaveCurrentConfig()
+        note_query = " OR ".join([f"note:{name}" for name in MODEL_NAMES])
+        noteIds = mw.col.findNotes(note_query)
+        logger.info(f"Found ({len(noteIds)}) notes of type matching '{note_query}'")
+        self.logHandler.flush()
+
+        wordList: [(SimpleWord, int)] = []
+        media_dir = mw.col.media.dir()
+        scan_counter = CounterGroup(total=len(noteIds))
+        for noteId in noteIds:
+            note = mw.col.getNote(noteId)
+            term = note['term']
+            reasons = self._collect_placeholder_reasons(note, self.tmp_currentConfig, media_dir)
+            if not reasons:
+                scan_counter.inc_failed()
+                continue
+
+            logger.debug(f"[{term}] has placeholders: {reasons}")
+            self.tmp_noteDict.setdefault(term, []).append(note)
+            scan_counter.inc_success()
+
+            if len(self.tmp_noteDict[term]) == 1:
+                word, row = SimpleWord(term), len(wordList)
+                wordList.append((word, row))
+
+        if not wordList:
+            logger.info(f"[All clear] No placeholder fields found.")
+            self.logHandler.flush()
+            tooltip(f"Nothing to do.")
+            return
+
+        logger.info(
+            f"[Placeholder scan] scanned={scan_counter.total}, candidates={scan_counter.success}, healthy={scan_counter.failed}, unique_terms={len(wordList)}"
+        )
+
+        if not askUser(
+            f"This operation will query {len(wordList)} words to re-fill placeholder fields. Continue?",
+            defaultno=True,
+        ):
+            logger.info(f"Aborted")
+            self.logHandler.flush()
+            return
+
+        self.querySuccessDict = {}
+        self.queryFailedDict = {}
+        self.tmp_wordList = wordList
+        auth_session = self.selectedDict.session if self.selectedDict else None
+        self.queryWords(wordList, apis[self.tmp_currentConfig['selectedApi']], self.__on_allQueryDone_FillPlaceholder, authenticated_session=auth_session)
+
+    @pyqtSlot()
+    def __on_allQueryDone_FillPlaceholder(self):
+        """Handle query completion for Fill Placeholder operation."""
+        if self._isShuttingDown:
+            logger.info("[FillPlaceholder] Window is shutting down. Skip post-query update.")
+            self.logHandler.flush()
+            return
+
+        failed_words = [self.tmp_wordList[row][0].term for row in self.queryFailedDict.keys()]
+        logger.info(f"[Query complete] Success: {len(self.querySuccessDict)}, Failed: {len(self.queryFailedDict)}")
+        if failed_words:
+            logger.warning(f"Failed words: {', '.join(failed_words)}")
+        self.logHandler.flush()
+
+        if self.queryFailedDict:
+            logger.warning(f"{len(self.queryFailedDict)} words query failed.")
+            if not askUser(f"{len(self.queryFailedDict)} words query failed. Continue anyway?"):
+                logger.info(f"Aborted")
+                self.logHandler.flush()
+                return
+
+        logger.info(f"------------------------------------------")
+        logger.info(f"Iterate over query results: update placeholder fields")
+        self.logHandler.flush()
+        preferred_pron = self.get_preferred_pron(self.tmp_currentConfig)
+
+        note_counter = CounterGroup(total=sum(len(v) for v in self.tmp_noteDict.values()))
+
+        for row, word in self.querySuccessDict.items():
+            if self._isShuttingDown:
+                logger.info("[FillPlaceholder] Interrupted by window shutdown during note updates.")
+                break
+
+            term = word['term']
+            existing_notes = self.tmp_noteDict.get(term, [])
+
+            for existing_note in existing_notes:
+                self._update_placeholder_fields(existing_note, word, self.tmp_currentConfig)
+                note_counter.inc_success()
+
+        mw.reset()
+        self.logHandler.flush()
+        logger.info(
+            f"[Placeholder summary] queried={len(self.querySuccessDict)+len(self.queryFailedDict)}, "
+            f"query_success={len(self.querySuccessDict)}, query_failed={len(self.queryFailedDict)}, "
+            f"notes_updated={note_counter.success}/{note_counter.total}"
+        )
+        logger.info(f"Done!")
+        self.logHandler.flush()
+
+    def _update_placeholder_fields(self, note, word: dict, config: dict):
+        """Update fields that have placeholder values with new query results."""
+        from .repair_logic import compute_missing_fields, derive_missing_tags
+
+        term = word['term']
+        isWritten = False
+
+        try:
+            # Update image field if it has placeholder and new value is available
+            if config.get('image') and word.get('image'):
+                image_value = ''
+                try:
+                    image_value = note['image']
+                except KeyError:
+                    pass
+                if image_value and is_no_image_field_value(image_value):
+                    imageFilename = default_image_filename_by_url(term, word['image'])
+                    value = f'<div><img src="{imageFilename}" /></div>'
+                    note['image'] = value
+                    isWritten = True
+                    logger.info(f"[FillPlaceholder] Updated image for: {term}")
+
+            # Update notes field if it has placeholder and new value is available
+            if word.get('notes'):
+                notes_value = ''
+                try:
+                    notes_value = note['notes']
+                except KeyError:
+                    pass
+                if notes_value and is_no_notes_field_value(notes_value):
+                    note['notes'] = word['notes']
+                    isWritten = True
+                    logger.info(f"[FillPlaceholder] Updated notes for: {term}")
+
+            # Only update tags if fields were actually updated
+            if isWritten:
+                # Compute missing fields and update tags
+                missing_fields = compute_missing_fields(word)
+                target_tags = derive_missing_tags(missing_fields)
+
+                # Update tags on the note
+                current_tags = set()
+                tags_attr = getattr(note, 'tags', None)
+                if isinstance(tags_attr, str):
+                    current_tags = set(tags_attr.split())
+                elif isinstance(tags_attr, list):
+                    current_tags = set(tags_attr)
+
+                # Remove old missing tags
+                for tag in list(current_tags):
+                    if tag.startswith('missing-'):
+                        current_tags.discard(tag)
+
+                # Add new missing tags
+                current_tags.update(target_tags)
+
+                # Save tags back
+                if isinstance(tags_attr, str):
+                    note.tags = ' '.join(sorted(current_tags))
+                elif isinstance(tags_attr, list):
+                    note.tags = sorted(current_tags)
+
+                mw.col.update_note(note)
+        except Exception as e:
+            logger.error(f"[FillPlaceholder] Failed to update placeholder fields for {term}: {e}")
 
     @pyqtSlot()
     def __on_assetsDownloadDone_FillMissingValues(self):

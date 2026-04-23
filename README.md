@@ -9,6 +9,7 @@
 4. replace default note template.
 5. fix "download missing assets" and "fill missing values" function
 6. display processing bar correctly
+7. Updated default note template with new @example.apkg (modified on 2026-04-22)
 
 ### How to install
 

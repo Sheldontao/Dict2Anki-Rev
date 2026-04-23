@@ -385,10 +385,7 @@ def default_audio_filename(term: str) -> str:
 
 
 def default_no_image_field_value() -> str:
-    return (
-        f'<div class="no-image">No image found in source dictionary.</div>'
-        f'<!-- {NO_IMAGE_FIELD_TOKEN} -->'
-    )
+    return f'<!-- {NO_IMAGE_FIELD_TOKEN} -->'
 
 
 def is_no_image_field_value(field_value: str) -> bool:
@@ -396,10 +393,7 @@ def is_no_image_field_value(field_value: str) -> bool:
 
 
 def default_no_notes_field_value() -> str:
-    return (
-        f'<div class="no-notes">No notes found in source dictionary.</div>'
-        f'<!-- {NO_NOTES_FIELD_TOKEN} -->'
-    )
+    return f'<!-- {NO_NOTES_FIELD_TOKEN} -->'
 
 
 def is_no_notes_field_value(field_value: str) -> bool:

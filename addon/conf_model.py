@@ -1,7 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .constants import MODEL_NAMES
 
 
 DEFAULT_CONGEST = 60
+DEFAULT_GROUP_MODEL = MODEL_NAMES[0]  # "Dict2Anki"
 
 
 @dataclass
@@ -22,6 +25,7 @@ class AddonConfig:
     sentence: bool
     exam_type: bool
     congest: int = DEFAULT_CONGEST
+    groupModel: dict = field(default_factory=dict)
 
     @classmethod
     def from_raw(cls, raw: dict) -> "AddonConfig":
@@ -42,4 +46,5 @@ class AddonConfig:
             sentence=raw.get('sentence', True),
             exam_type=raw.get('exam_type', True),
             congest=int(raw.get('congest', DEFAULT_CONGEST) or DEFAULT_CONGEST),
+            groupModel=raw.get('groupModel') or {},
         )

@@ -1,5 +1,15 @@
 # Changelog
 
+## [7.3.0] - 2026-06-19
+
+### Added
+- **Per-group model assignment**: the group selection dialog (the popup that appears when fetching words from a dictionary) now shows a table with three columns — `[Sync checkbox, Group name, Model dropdown]`. Users can pick `Dict2Anki` or `Dict2Anki-Listening` for each source group. Selection is persisted in a new `groupModel` config field (mapping group name → model name). When syncing, each word uses the model assigned to its source group. Words with no explicit assignment fall back to `Dict2Anki`.
+
+### Changed
+- `addon/UIForm/wordGroup.py`: replaced `QListWidget` with `QTableWidget` to add the model column.
+- `addon/workers.py`: `RemoteWordFetchingWorker.doneThisGroup` now emits `(groupName, words)` so the receiver can tag words with their source group.
+- `addon/addonWindow.py`: new `remoteWordSourceGroup` dict tracks the source group for each fetched word. The sync flow looks up `groupModel[source_group]` per word and uses the corresponding model object when calling `addNoteToDeck`.
+
 ## [7.2.0] - 2026-06-19
 
 ### Changed

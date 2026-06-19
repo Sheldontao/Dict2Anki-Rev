@@ -28,6 +28,11 @@ class Parser:
             return url
 
     @staticmethod
+    def _looks_like_absolute_audio_url(value) -> bool:
+        """Strict scheme check for audio URLs (mirrors the sentence-speech pattern)."""
+        return bool(value) and str(value).lstrip().startswith(('http://', 'https://'))
+
+    @staticmethod
     def __build_sentence_speech_url_from_plain_text(sentence_text: str) -> str:
         sentence_text = (sentence_text or '').strip()
         if not sentence_text:
@@ -211,9 +216,9 @@ class Parser:
 
                 # Construct full URLs if they are relative
                 url_prefix = 'https://api.frdic.com/api/v2/speech/speakweb?'
-                if pron['BrEUrl'] and 'http' not in pron['BrEUrl']:
+                if pron['BrEUrl'] and not self._looks_like_absolute_audio_url(pron['BrEUrl']):
                     pron['BrEUrl'] = f"{url_prefix}{pron['BrEUrl']}"
-                if pron['AmEUrl'] and 'http' not in pron['AmEUrl']:
+                if pron['AmEUrl'] and not self._looks_like_absolute_audio_url(pron['AmEUrl']):
                     pron['AmEUrl'] = f"{url_prefix}{pron['AmEUrl']}"
 
             except (TypeError, KeyError, AttributeError) as e:

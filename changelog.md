@@ -1,5 +1,11 @@
 # Changelog
 
+## [7.1.1] - 2026-06-19
+
+### Changed
+- Eudic `pronunciations` parser (`addon/queryApi/eudict.py`) now uses a strict `startswith(('http://', 'https://'))` scheme check when deciding whether a phonetic `data-rel` needs the `https://api.frdic.com/api/v2/speech/speakweb?` prefix. Previously a substring match (`'http' not in url`) was used; the new check aligns with the sentence-speech pattern at `addon/queryApi/eudict.py:44` and removes the edge case where a `data-rel` that happens to contain the literal substring `http` (but is not actually a URL) could be kept verbatim. No user-visible behavior change for known Eudic data shapes (verified against `ulterior/*.html` — only query-string and full-URL shapes are present in the wild).
+- Added regression tests under `tests/test_eudic_pronunciations.py` and `tests/test_youdao_pronunciations.py` pinning the URL-only contract for `BrEPron` / `AmEPron` across both parsers — populated values must match `^https?://` and must never contain Anki's `[sound:` local-media reference syntax.
+
 ## [Unreleased] - 2026-03-24
 
 ### Fixed

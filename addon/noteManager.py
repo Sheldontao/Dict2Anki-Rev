@@ -85,26 +85,20 @@ def getOrCreateCardTemplate(modelObject, cardTemplateName, qfmt, afmt, css, add=
         mw.col.models.save(modelObject)
 
 
-def getOrCreateNormalCardTemplate(modelObject, fg: FieldGroup):
-    """Create Normal Card Template (Card Type)"""
-    qfmt = normal_card_template_qfmt(fg)
-    afmt = normal_card_template_afmt(fg)
-    getOrCreateCardTemplate(modelObject, NORMAL_CARD_TEMPLATE_NAME,
-                            qfmt, afmt, CARD_TEMPLATE_CSS, add=True)
+def getOrCreateDict2AnkiCardTemplate(modelObject):
+    """Create the single hardcoded Forward card type on the Dict2Anki model."""
+    qfmt = dict2anki_card_template_qfmt()
+    afmt = dict2anki_card_template_afmt()
+    getOrCreateCardTemplate(modelObject, DICT2ANKI_CARD_TEMPLATE_NAME,
+                            qfmt, afmt, DICT2ANKI_CSS, add=True)
 
 
-def getOrCreateBackwardsCardTemplate(modelObject, fg: FieldGroup):
-    """Create Backwards Card Template (Card Type) to existing Dict2Anki Note Type"""
-    qfmt = backwards_card_template_qfmt(fg)
-    afmt = backwards_card_template_afmt(fg)
-    getOrCreateCardTemplate(modelObject, BACKWARDS_CARD_TEMPLATE_NAME,
-                            qfmt, afmt, CARD_TEMPLATE_CSS, add=False)
-
-
-def deleteBackwardsCardTemplate(modelObject, backwardsTemplateObject):
-    """Delete Backwards Card Template (Card Type) from existing Dict2Anki Note Type"""
-    mw.col.models.remove_template(modelObject, backwardsTemplateObject)
-    mw.col.models.save(modelObject)
+def getOrCreateListeningCardTemplate(modelObject):
+    """Create the single hardcoded Listening card type on the Dict2Anki-Listening model."""
+    qfmt = listening_card_template_qfmt()
+    afmt = listening_card_template_afmt()
+    getOrCreateCardTemplate(modelObject, LISTENING_CARD_TEMPLATE_NAME,
+                            qfmt, afmt, LISTENING_CSS, add=True)
 
 
 def checkModelFields(modelObject) -> (bool, set, set):
@@ -150,48 +144,69 @@ def mergeModelFields(modelObject) -> bool:
     return True
 
 
-def checkModelCardTemplates(modelObject, fg) -> bool:
-    """Check if model card templates are as expected"""
-    for tmpl in modelObject['tmpls']:
-        tmpl_name = tmpl['name']
-        logger.info(f"Found card template '{tmpl_name}'")
-        if tmpl_name == NORMAL_CARD_TEMPLATE_NAME:
-            if tmpl['qfmt'] != normal_card_template_qfmt(fg) or tmpl['afmt'] != normal_card_template_afmt(fg):
-                logger.info(f"Changes detected in template '{tmpl_name}'")
-                return False
-        elif tmpl_name == BACKWARDS_CARD_TEMPLATE_NAME:
-            if tmpl['qfmt'] != backwards_card_template_qfmt(fg) or tmpl['afmt'] != backwards_card_template_afmt(fg):
-                logger.warning(f"Changes detected in template '{tmpl_name}'")
-                return False
+def _expected_card_template_for_model(modelName: str):
+    """Return (qfmt, afmt, css, expected_template_name) for a given model."""
+    if modelName == MODEL_NAMES[0]:
+        return (
+            dict2anki_card_template_qfmt(),
+            dict2anki_card_template_afmt(),
+            DICT2ANKI_CSS,
+            DICT2ANKI_CARD_TEMPLATE_NAME,
+        )
+    if modelName == MODEL_NAMES[1]:
+        return (
+            listening_card_template_qfmt(),
+            listening_card_template_afmt(),
+            LISTENING_CSS,
+            LISTENING_CARD_TEMPLATE_NAME,
+        )
+    raise ValueError(f"Unknown model name: {modelName!r}")
+
+
+def checkModelCardTemplates(modelObject) -> bool:
+    """Check if model card templates are as expected."""
+    expected_qfmt, expected_afmt, expected_css, expected_name = _expected_card_template_for_model(
+        modelObject['name'])
+
+    templates = modelObject['tmpls']
+    if len(templates) != 1 or templates[0]['name'] != expected_name:
+        logger.info(f"Expected exactly one card template named '{expected_name}' for model {modelObject['name']!r}; found {[t['name'] for t in templates]}")
+        return False
+    tmpl = templates[0]
+    if tmpl['qfmt'] != expected_qfmt or tmpl['afmt'] != expected_afmt:
+        logger.info(f"Changes detected in template '{expected_name}' for model {modelObject['name']!r}")
+        return False
+    if modelObject.get('css', '') != expected_css:
+        logger.info(f"Changes detected in card CSS for model {modelObject['name']!r}")
+        return False
     return True
 
 
-def checkModelCardCSS(modelObject) -> bool:
-    """Check if model CSS are as expected"""
-    current_css = modelObject['css']
-    expected_css = CARD_TEMPLATE_CSS
-    if current_css == expected_css:
-        return True
+def resetModelCardTemplates(modelObject):
+    """Reset Card Templates and CSS to default for the given model."""
+    expected_qfmt, expected_afmt, expected_css, expected_name = _expected_card_template_for_model(
+        modelObject['name'])
+
+    logger.info(f"Reset card templates for model {modelObject['name']!r}")
+    templates = modelObject['tmpls']
+    # Remove any extra templates; the per-model architecture only allows one.
+    for tmpl in list(templates):
+        if tmpl['name'] != expected_name:
+            logger.info(f"Removing stale card template {tmpl['name']!r} from model {modelObject['name']!r}")
+            mw.col.models.remove_template(modelObject, tmpl)
+
+    if not any(t['name'] == expected_name for t in templates):
+        logger.info(f"Creating card template '{expected_name}' on model {modelObject['name']!r}")
+        new_tmpl = mw.col.models.newTemplate(expected_name)
+        new_tmpl['qfmt'] = expected_qfmt
+        new_tmpl['afmt'] = expected_afmt
+        mw.col.models.addTemplate(modelObject, new_tmpl)
     else:
-        logger.warning(f"Changes detected in card CSS")
-        return False
+        tmpl = next(t for t in templates if t['name'] == expected_name)
+        tmpl['qfmt'] = expected_qfmt
+        tmpl['afmt'] = expected_afmt
 
-
-def resetModelCardTemplates(modelObject, fg):
-    """Reset Card Templates to default"""
-    for tmpl in modelObject['tmpls']:
-        tmpl_name = tmpl['name']
-        if tmpl_name == NORMAL_CARD_TEMPLATE_NAME:
-            logger.info(f"Reset card template '{NORMAL_CARD_TEMPLATE_NAME}'")
-            tmpl['qfmt'] = normal_card_template_qfmt(fg)
-            tmpl['afmt'] = normal_card_template_afmt(fg)
-        elif tmpl_name == BACKWARDS_CARD_TEMPLATE_NAME:
-            logger.info(f"Reset card template '{BACKWARDS_CARD_TEMPLATE_NAME}'")
-            tmpl['qfmt'] = backwards_card_template_qfmt(fg)
-            tmpl['afmt'] = backwards_card_template_afmt(fg)
-    logger.info(f"Reset CSS")
-    modelObject['css'] = CARD_TEMPLATE_CSS
-    logger.info(f"Save changes")
+    modelObject['css'] = expected_css
     mw.col.models.save(modelObject)
 
 

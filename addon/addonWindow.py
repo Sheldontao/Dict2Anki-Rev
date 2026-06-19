@@ -320,15 +320,6 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         maskedConfig['credential'] = maskedCredential
         return maskedConfig
 
-    def getFieldGroup(self, config) -> FieldGroup:
-        """Check current card settings and toggle off corresponding fields"""
-        fg = FieldGroup()
-        for field in CARD_SETTINGS:
-            if not config[field]:
-                logger.info(f"FieldGroup: '{field}' is toggled off. Will remove it from templates.")
-                fg.toggleOff(field)
-        return fg
-
     def checkUpdate(self):
         @pyqtSlot(str, str)
         def on_haveNewVersion(version, changeLog):
@@ -689,17 +680,33 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.logHandler.flush()
         # currentConfig = self.getAndSaveCurrentConfig()
         currentConfig, configChanged, cardSettingsChanged = self.getAndSaveCurrentConfig_returnMetaInfo()
-        fg = self.getFieldGroup(currentConfig)
 
-        # create Note Type/Model
+        # create Note Types/Models (Dict2Anki + Dict2Anki-Listening)
         logger.info(f"Create Note Type/Model")
         self.logHandler.flush()
-        newCreated, fieldsUpdated = True, True
+
+        def _ensure_model_with_template(model_name, template_factory):
+            model, new_created, fields_updated = getOrCreateModel(model_name)
+            if new_created:
+                logger.info(f"Create card template for new model {model_name!r}.")
+                self.logHandler.flush()
+                template_factory(model)
+            else:
+                logger.info(f"Found existing model {model_name!r}.")
+                if currentConfig['syncTemplates']:
+                    logger.info(f"Reset card templates for {model_name!r}.")
+                    self.logHandler.flush()
+                    resetModelCardTemplates(model)
+                else:
+                    logger.info(f"Skip Templates Sync for {model_name!r} as it has been turned off.")
+            return model
+
         try:
-            model, newCreated, fieldsUpdated = getOrCreateModel(MODEL_NAMES[0])
+            model = _ensure_model_with_template(MODEL_NAMES[0], getOrCreateDict2AnkiCardTemplate)
+            listening_model = _ensure_model_with_template(MODEL_NAMES[1], getOrCreateListeningCardTemplate)
         except Exception as err:
             logger.warning(err)
-            if not askUser(f"{err}\nDeleting it would delete ALL its cards and notes!!! Continue?", defaultno=True):
+            if not askUser(f"{err}\nDeleting it would delete ALL its cards/notes!!! Continue?", defaultno=True):
                 logger.info("Aborted")
                 self.logHandler.flush()
                 return
@@ -709,22 +716,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
                 return
             # force delete the existing model
             model = getOrCreateModel(MODEL_NAMES[0], recreate=True)
-
-        if newCreated:
-            # create 'Normal' card template (card type)
-            logger.info(f"Create card templates for the new created model.")
-            self.logHandler.flush()
-            getOrCreateNormalCardTemplate(model, fg)
-            # create 'Backwards' card template (card type)
-            # getOrCreateBackwardsCardTemplate(model)
-        else:
-            logger.info(f"Found existing model.")
-            if currentConfig['syncTemplates']:
-                logger.info(f"Reset card templates to default (FieldGroup settings will be respected).")
-                self.logHandler.flush()
-                resetModelCardTemplates(model, fg)
-            else:
-                logger.info(f"Skip Templates Sync as it has been turned off.")
+            listening_model = _ensure_model_with_template(MODEL_NAMES[1], getOrCreateListeningCardTemplate)
 
         # else:           # existing model. (Let's make it simple: Reset card templates to default upon every sync.)
         #     logger.info(f"Found existing model. Reset card templates to default (FieldGroup settings will be respected).")
@@ -1435,76 +1427,40 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         tooltip("btnExportAudio Clicked!")
 
     @pyqtSlot()
-    def on_btnBackwardTemplate_clicked(self):
-        """Add Or Delete Backwards Card Template (Card Type)"""
-        modelObject = mw.col.models.byName(MODEL_NAMES[0])
-        if not modelObject:
-            showInfo(f"Model (Note Type) '{MODEL_NAMES[0]}' does not exist! Please Sync first!")
-            return
-
-        backwardsTemplate = None
-        for temp in modelObject['tmpls']:
-            if temp['name'] == BACKWARDS_CARD_TEMPLATE_NAME:
-                backwardsTemplate = temp
-                break
-
-        if backwardsTemplate:
-            if askUser("Are you sure to DELETE Backwards template?", defaultno=True):
-                try:
-                    deleteBackwardsCardTemplate(modelObject, backwardsTemplate)
-                    logger.info("Deleted Backwards template")
-                    tooltip("Deleted")
-                except AssertionError as err:
-                    logger.error(f"Failed to delete Backwards template: {err}")
-                    tooltip("Failed!")
-        else:
-            if askUser("Add Backwards template now?", defaultno=True):
-                try:
-                    currentConfig = self.getAndSaveCurrentConfig()
-                    fg = self.getFieldGroup(currentConfig)
-                    getOrCreateBackwardsCardTemplate(modelObject, fg)
-                    logger.info("Added Backward template")
-                    tooltip("Added")
-                except Exception as e:
-                    logger.error(e)
-                    tooltip("Failed!")
-        self.logHandler.flush()
-
-    @pyqtSlot()
     def on_btnCheckTemplates_clicked(self):
-        logger.info(f"Checking Card Templates for model {MODEL_NAMES[0]}...")
-        model = mw.col.models.byName(MODEL_NAMES[0])
-        if not model:
-            showInfo(f"Model (Note Type) '{MODEL_NAMES[0]}' does not exist! Please Sync first!")
-            return
+        """Check and optionally reset card templates for all Dict2Anki models."""
+        any_changes = False
+        for model_name in MODEL_NAMES:
+            logger.info(f"Checking Card Templates for model {model_name!r}...")
+            model = mw.col.models.byName(model_name)
+            if not model:
+                showInfo(f"Model (Note Type) {model_name!r} does not exist! Please Sync first!")
+                continue
 
-        logger.info(f"model: {json.dumps(model)}")
-        logger.info(f"Checking fields...")
-        self.logHandler.flush()
-        ok, unknown_fields, missing_fields = checkModelFields(model)
-        if not ok and missing_fields:
-            if not askUser(f"Model fields are not as expected. Merge now?", defaultno=True):
-                logger.info(f"Aborted")
+            ok_fields, _, missing_fields = checkModelFields(model)
+            if not ok_fields and missing_fields:
+                if not askUser(f"Model {model_name!r} fields are not as expected. Merge now?", defaultno=True):
+                    logger.info(f"Aborted field merge for {model_name!r}")
+                    self.logHandler.flush()
+                    continue
+                mergeModelFields(model)
+
+            if checkModelCardTemplates(model):
+                logger.info(f"No changes detected for {model_name!r}.")
+                continue
+
+            any_changes = True
+            if not askUser(f"Model {model_name!r} card templates or CSS have been changed. Would you like to reset to default?", defaultno=True):
+                logger.info(f"Aborted reset for {model_name!r}")
                 self.logHandler.flush()
-                return
-            mergeModelFields(model)
-
-        logger.info(f"Checking card templates...")
-        currentConfig = self.getAndSaveCurrentConfig()
-        fg = self.getFieldGroup(currentConfig)
-        if checkModelCardTemplates(model, fg) and checkModelCardCSS(model):
-            logger.info(f"No changes detected.")
-            self.logHandler.flush()
-            tooltip(f"No changes detected.")
-            return
-
-        else:
-            if not askUser(f"Model card templates or CSS have been changed. Would you like to reset to default?", defaultno=True):
-                logger.info(f"Aborted")
-                self.logHandler.flush()
-                return
-            logger.info(f"Resetting card templates for model {MODEL_NAME}...")
-            resetModelCardTemplates(model, fg)
+                continue
+            logger.info(f"Resetting card templates for {model_name!r}...")
+            resetModelCardTemplates(model)
             logger.info(f"Done!")
             self.logHandler.flush()
-            tooltip(f"Reset complete.")
+            tooltip(f"Reset complete for {model_name!r}.")
+
+        if not any_changes:
+            self.logHandler.flush()
+            tooltip(f"No changes detected.")
+        self.logHandler.flush()

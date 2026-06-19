@@ -1,4 +1,4 @@
-VERSION = '7.1.1'
+VERSION = '7.2.0'
 RELEASE_URL = 'https://github.com/lixvbnet/Dict2Anki'
 VERSION_CHECK_API = 'https://api.github.com/repos/lixvbnet/Dict2Anki/releases/latest'
 WINDOW_TITLE = f'Dict2Anki {VERSION}'
@@ -29,59 +29,23 @@ MODEL_FIELDS = [
 CARD_SETTINGS = ['definition_en', 'image', 'pronunciation', 'phrase', 'sentence', 'exam_type']
 
 
-class FieldGroup:
-    def __init__(self):
-        self.definition_en = "{{definition_en}}"
-        self.image = "{{image}}"
-        self.pronunciation = "{{pronunciation}}"
-        self.phrase = [
-            ("{{phrase0}}", "{{phrase_explain0}}"),
-            ("{{phrase1}}", "{{phrase_explain1}}"),
-            ("{{phrase2}}", "{{phrase_explain2}}"),
-        ]
-        self.sentence = [
-            ("{{sentence0}}", "{{sentence_explain0}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech0}}"></audio>▶︎</a>'),
-            ("{{sentence1}}", "{{sentence_explain1}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech1}}"></audio>▶︎</a>'),
-            ("{{sentence2}}", "{{sentence_explain2}}", '<a onclick="this.firstChild.play()"><audio src="{{sentence_speech2}}"></audio>▶︎</a>'),
-        ]
-        self.exam_type = "{{exam_type}}"
-
-    def toggleOff(self, field):
-        if field not in CARD_SETTINGS:
-            raise RuntimeError(f"Unexpected field: {field}. Must be in {CARD_SETTINGS}!")
-        if field == 'phrase':
-            setattr(self, field, [
-                ("", ""),
-                ("", ""),
-                ("", "")
-            ])
-        elif field == 'sentence':
-            setattr(self, field, [
-                ("", "", ''),
-                ("", "", ''),
-                ("", "", '')
-            ])
-        else:
-            setattr(self, field, "")
-
-    def toString(self) -> str:
-        return f"definition_en={self.definition_en}, image={self.image}, pronunciation={self.pronunciation}, phrase={self.phrase}, sentence={self.sentence}"
-
-    def __str__(self) -> str:
-        return self.toString()
-
-    def __repr__(self) -> str:
-        return self.toString()
+# Each model has exactly one card type, identified by these names.
+DICT2ANKI_CARD_TEMPLATE_NAME = "Forward"
+LISTENING_CARD_TEMPLATE_NAME = "Listening"
 
 
-def normal_card_template_qfmt(fg: FieldGroup):
-    _ = fg
+def dict2anki_card_template_qfmt():
+    """Hardcoded Dict2Anki front template.
+
+    Replaces the previous FieldGroup-based dynamic template. Uses Anki's
+    built-in {{#field}}{{/field}} conditionals to skip empty fields.
+    """
     return """\
 <table>
     <tr>
         <td>
             <h1 class="term">{{term}}{{pronunciation}}</h1>
-            <div class="pronounce">
+            <div>
                 <span class="phonetic"
                     ><a onclick="this.firstChild.play()"
                         ><audio src="{{BrEPron}}"></audio>UK[{{uk}}]</a
@@ -101,51 +65,68 @@ def normal_card_template_qfmt(fg: FieldGroup):
 </table>
 
 <div class="divider"></div>
+
+{{#phrase0}}
 <table>
     <tr>
         <td class="phrase">{{phrase0}}</td>
-        <td>{{hint:phrase_explain0}}</td>
     </tr>
     <tr>
         <td class="phrase">{{phrase1}}</td>
-        <td>{{hint:phrase_explain1}}</td>
     </tr>
     <tr>
         <td class="phrase">{{phrase2}}</td>
-        <td>{{hint:phrase_explain2}}</td>
     </tr>
 </table>
+<br>
+{{/phrase0}}
 <table>
     <tr>
-        <td class="sentence">
-            {{sentence0}} {{#sentence0}}<a onclick="this.firstChild.play()"
-                ><audio src="{{sentence_speech0}}"></audio>▶︎</a
-            >{{/sentence0}}
-        </td>
-        <td>{{hint:sentence_explain0}}</td>
+<td class="sentence">
+    {{sentence0}}
+
+    {{#sentence_speech0}}
+    <a href="javascript:void(0);"
+       onclick="var a = this.querySelector('audio'); a.currentTime = 0; a.play();"
+       style="text-decoration: none; cursor: pointer; margin-left: 5px;">
+        <audio src="{{text:sentence_speech0}}"></audio>
+        <span style="color: #666;">▶︎</span>
+    </a>
+    {{/sentence_speech0}}
+</td>
     </tr>
+<td class="sentence">
+    {{sentence1}}
+
+    {{#sentence_speech1}}
+    <a href="javascript:void(0);"
+       onclick="var a = this.querySelector('audio'); a.currentTime = 0; a.play();"
+       style="text-decoration: none; cursor: pointer; margin-left: 5px;">
+        <audio src="{{text:sentence_speech1}}"></audio>
+        <span style="color: #666;">▶︎</span>
+    </a>
+    {{/sentence_speech1}}
+</td>
     <tr>
-        <td class="sentence">
-            {{sentence1}} {{#sentence1}}<a onclick="this.firstChild.play()"
-                ><audio src="{{sentence_speech1}}"></audio>▶︎</a
-            >{{/sentence1}}
-        </td>
-        <td>{{hint:sentence_explain1}}</td>
-    </tr>
-    <tr>
-        <td class="sentence">
-            {{sentence2}} {{#sentence2}}<a onclick="this.firstChild.play()"
-                ><audio src="{{sentence_speech2}}"></audio>▶︎</a
-            >{{/sentence2}}
-        </td>
-        <td>{{hint:sentence_explain2}}</td>
+<td class="sentence">
+    {{sentence2}}
+
+    {{#sentence_speech2}}
+    <a href="javascript:void(0);"
+       onclick="var a = this.querySelector('audio'); a.currentTime = 0; a.play();"
+       style="text-decoration: none; cursor: pointer; margin-left: 5px;">
+        <audio src="{{text:sentence_speech2}}"></audio>
+        <span style="color: #666;">▶︎</span>
+    </a>
+    {{/sentence_speech2}}
+</td>
     </tr>
 </table>
 """
 
 
-def normal_card_template_afmt(fg: FieldGroup):
-    _ = fg
+def dict2anki_card_template_afmt():
+    """Hardcoded Dict2Anki back template."""
     return """\
 <table>
     <tr>
@@ -169,7 +150,7 @@ def normal_card_template_afmt(fg: FieldGroup):
                     />
                 </a>
             </h1>
-            <div class="pronounce">
+            <div>
                 <span class="phonetic"
                     ><a onclick="this.firstChild.play()"
                         ><audio src="{{BrEPron}}"></audio>UK[{{uk}}]</a
@@ -180,32 +161,37 @@ def normal_card_template_afmt(fg: FieldGroup):
                         ><audio src="{{AmEPron}}"></audio>US[{{us}}]</a
                     ></span
                 >
-            </div>
+            </div><br>
+<div class="note">{{notes}}</div>
             <div class="definition_en">{{definition_en}}</div>
             <br />
             <div class="definition">{{hint:definition}}</div>
             <div class="exam_type">{{exam_type}}</div>
         </td>
         {{#image}}
-        <td style="width: 33%">{{image}}</td>
+        <td class="right-align" style="width: 33%">{{image}}</td>
         {{/image}}
     </tr>
 </table>
 <div class="divider"></div>
+
+{{#phrase0}}
 <table>
     <tr>
         <td class="phrase">{{phrase0}}</td>
-        <td>{{hint:phrase_explain0}}</td>
+        <td class="right-align">{{hint:phrase_explain0}}</td>
     </tr>
     <tr>
         <td class="phrase">{{phrase1}}</td>
-        <td>{{hint:phrase_explain1}}</td>
+        <td class="right-align">{{hint:phrase_explain1}}</td>
     </tr>
     <tr>
         <td class="phrase">{{phrase2}}</td>
-        <td>{{hint:phrase_explain2}}</td>
+        <td class="right-align">{{hint:phrase_explain2}}</td>
     </tr>
 </table>
+<br>
+{{/phrase0}}
 <table>
     <tr>
         <td class="sentence">
@@ -213,7 +199,7 @@ def normal_card_template_afmt(fg: FieldGroup):
                 ><audio src="{{sentence_speech0}}"></audio>▶︎</a
             >{{/sentence0}}
         </td>
-        <td>{{hint:sentence_explain0}}</td>
+        <td class="right-align">{{hint:sentence_explain0}}</td>
     </tr>
     <tr>
         <td class="sentence">
@@ -221,7 +207,7 @@ def normal_card_template_afmt(fg: FieldGroup):
                 ><audio src="{{sentence_speech1}}"></audio>▶︎</a
             >{{/sentence1}}
         </td>
-        <td>{{hint:sentence_explain1}}</td>
+        <td class="right-align">{{hint:sentence_explain1}}</td>
     </tr>
     <tr>
         <td class="sentence">
@@ -229,53 +215,95 @@ def normal_card_template_afmt(fg: FieldGroup):
                 ><audio src="{{sentence_speech2}}"></audio>▶︎</a
             >{{/sentence2}}
         </td>
-        <td>{{hint:sentence_explain2}}</td>
+        <td class="right-align">{{hint:sentence_explain2}}</td>
     </tr>
 </table>
 """
 
 
-def backwards_card_template_qfmt(fg: FieldGroup):
-    return f"""\
-<table>
+def listening_card_template_qfmt():
+    """Hardcoded Dict2Anki-Listening front template (typing + listening)."""
+    return """\
+<table style="width: 100%; table-layout: fixed;">
     <tr>
-        <td>
-        <h1 class="term"></h1>
-            <div class="pronounce">
-                <span class="phonetic">UK[Tap To View]</span>
-                <span class="phonetic">US[Tap To View]</span>
+        <td style="vertical-align: top; text-align: left;">
+            <div class="type-box" style="margin-bottom: 10px;">
+                {{type:term}}
             </div>
-            <div class="definition">{{{{definition}}}}</div>
-            <div class="definition_en">{fg.definition_en}</div>
+
+            <h1 class="term" style="margin: 0;">{{pronunciation}}<a
+                    onclick="event.stopPropagation()"
+                    href="eudic://dict/{{term}}"
+                >
+                    <img class="icon" src="_eudict_24.png" />
+                </a>
+                <a
+                    onclick="event.stopPropagation()"
+                    href="https://www.google.com/search?tbm=isch&q={{term}}"
+                >
+                    <img
+                        class="icon"
+                        src="https://img.icons8.com/color/28/google.png"
+                        alt="Google Icon"
+                    />
+                </a>
+            </h1>
+
+            <div class="pronounce" style="margin-top: 5px;">
+                {{#uk}}
+                <span class="phonetic">
+                    <a onclick="this.firstChild.play()"><audio src="{{BrEPron}}"></audio>UK[{{uk}}]</a>
+                </span>
+                {{/uk}}
+
+                {{#us}}
+                <span class="phonetic">
+                    <a onclick="this.firstChild.play()"><audio src="{{AmEPron}}"></audio>US[{{us}}]</a>
+                </span>
+                {{/us}}
+            </div>
+
+            <div class="definition">{{hint:definition}}</div>
+
+            {{#definition_en}}
+            <div class="definition_en" style="color: #666; font-style: italic; margin-top: 5px;">
+                {{definition_en}}
+            </div>
+            {{/definition_en}}
         </td>
-        <td style="width: 33%;">
-            {fg.image}
-        </td>
+
+        <td class="hide-on-front" style="width: 35%; vertical-align: top; text-align: right;">
+            {{#image}}{{image}}{{/image}}
+            </td>
     </tr>
 </table>
-<div class="divider"></div>
-<table>
-    <tr><td class="phrase">{fg.phrase[0][0]}</td><td>{fg.phrase[0][1]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[1][0]}</td><td>{fg.phrase[1][1]}</td></tr>
-    <tr><td class="phrase">{fg.phrase[2][0]}</td><td>{fg.phrase[2][1]}</td></tr>
-</table>
-<table>
-    <tr><td class="sentence">{fg.sentence[0][0]}</td><td>{fg.sentence[0][1]}</td></tr>
-    <tr><td class="sentence">{fg.sentence[1][0]}</td><td>{fg.sentence[1][1]}</td></tr>
-    <tr><td class="sentence">{fg.sentence[2][0]}</td><td>{fg.sentence[2][1]}</td></tr>
-</table>
+<div class='hide-on-front'>
+
+{{#phrase0}}
+<hr> {{phrase0}}<br>
+{{phrase_explain0}}
+{{/phrase0}}
+
+{{#sentence0}}
+<hr> {{sentence0}}<br>
+{{sentence_explain0}}
+{{/sentence0}}
+
+<div>
 """
 
 
-def backwards_card_template_afmt(fg: FieldGroup):
-    return normal_card_template_afmt(fg)
+def listening_card_template_afmt():
+    """Hardcoded Dict2Anki-Listening back template."""
+    return """\
+<div class="back-card">
+<!-- First, show the complete front content -->
+{{FrontSide}}
+</div>
+"""
 
 
-# Normal card template
-NORMAL_CARD_TEMPLATE_NAME = "Normal"
-# Backwards card template (using same AFMT and CSS with Normal card template)
-BACKWARDS_CARD_TEMPLATE_NAME = "Backwards"
-CARD_TEMPLATE_CSS = """\
+DICT2ANKI_CSS = """\
 .card {
   font-family: arial;
   font-size: 16px;
@@ -283,12 +311,8 @@ CARD_TEMPLATE_CSS = """\
   color: #212121;
   background-color: white;
 }
-.pronounce {
-  line-height: 30px;
-  font-size: 26px;
-  margin-bottom: 0;
-}
 .phonetic {
+  line-height: 30px;
   font-size: 16px;
   font-family: "lucida sans unicode", arial, sans-serif;
   color: #32a852;
@@ -311,28 +335,69 @@ CARD_TEMPLATE_CSS = """\
   margin: 1em 0 1em 0;
   border-bottom: 2px solid #4caf50;
 }
-.phrase,
-.sentence {
+.note {
   color: #01848f;
   padding-right: 1em;
 }
-.no-image {
-  color: #777;
-  font-size: 13px;
-  font-style: italic;
-}
-.no-notes {
-  color: #777;
-  font-size: 13px;
-  font-style: italic;
-}
+/* 3. Limit max image width to prevent layout overflow */
 img {
-  max-height: 300px;
+    max-width: 100%;
+    height: auto;
+}
+/* 2. Position right column with right-aligned content */
+.right-align {
+    text-align: right;
+    vertical-align: top;
+}
+/* 1. Ensure all tables occupy 100% of window width */
+table {
+    width: 100%;
+    border-collapse: collapse;
 }
 tr {
   vertical-align: top;
 }
+/* Style the click-to-reveal hint text */
+.hint {
+    color: #808080
+}
 """
+
+
+LISTENING_CSS = """\
+.card {
+  font-family: Arial, sans-serif;
+  font-size: 20px;
+  text-align: left;
+  color: #000;
+  background-color: #fff;
+}
+
+.term {
+  font-size: 35px;
+}
+
+hr#answer {
+  border: none;
+  height: 4px;
+  margin: 20px auto;
+}
+/* Hide extra content by default (i.e., on the front) */
+.hide-on-front {
+    display: none;
+}
+/* Reveal hidden content when inside .back-card (i.e., on the back) */
+.back-card .hide-on-front {
+    display: table-cell;
+}
+"""
+
+
+# Backward-compat aliases (referenced by tests / older callers). New code should
+# use the per-model constants directly.
+NORMAL_CARD_TEMPLATE_NAME = DICT2ANKI_CARD_TEMPLATE_NAME
+BACKWARDS_CARD_TEMPLATE_NAME = LISTENING_CARD_TEMPLATE_NAME
+CARD_TEMPLATE_CSS = DICT2ANKI_CSS
 
 
 PRON_TYPES = ['noPron', 'BrEPron', 'AmEPron']

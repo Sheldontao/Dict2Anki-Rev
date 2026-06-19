@@ -1,5 +1,17 @@
 # Changelog
 
+## [7.2.0] - 2026-06-19
+
+### Changed
+- **Hardcoded card templates**: replaced the previous FieldGroup-based dynamic template generation with two hardcoded model template sets (the original Dict2Anki styling and a new Dict2Anki-Listening typing card). Each model now has a single card type with its own CSS.
+  - `Dict2Anki` model → card type `Forward` using the standard term → recall-definition layout with hint-revealed definitions and per-sentence audio icons. New CSS in `addon/constants.py:DICT2ANKI_CSS`.
+  - `Dict2Anki-Listening` model → card type `Listening` using `{{type:term}}` typing card with hidden images / phrases / sentences that reveal on the back via `.back-card .hide-on-front { display: table-cell }`. New CSS in `addon/constants.py:LISTENING_CSS`.
+  - Both models are created/reset automatically on sync.
+- **Removed FieldGroup**: the dynamic template-toggling class (`addon/constants.py`) is no longer needed and was deleted. The sync flow no longer calls `getFieldGroup()`. Empty fields are handled by Anki's built-in `{{#field}}{{/field}}` conditionals in the new templates.
+- **Removed Backwards template button**: the "Add/Delete Backwards Template" button in the Danger Zone group has been removed — the Backwards concept is replaced by the always-on `Dict2Anki-Listening` model.
+- **Updated Check Card Templates**: now iterates over both `Dict2Anki` and `Dict2Anki-Listening` models, optionally removing stale card templates and resetting the per-model CSS.
+- Added `tests/test_hardcoded_templates.py` (13 tests) pinning the structure of the two hardcoded templates and CSS.
+
 ## [7.1.1] - 2026-06-19
 
 ### Changed

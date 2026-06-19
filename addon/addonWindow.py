@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from pathlib import Path
 
 from aqt.qt import QIcon
-from aqt.qt import QPlainTextEdit, QDialog, QFileDialog, QListWidgetItem, QVBoxLayout, QPushButton
+from aqt.qt import QPlainTextEdit, QDialog, QFileDialog, QListWidgetItem, QTableWidgetItem, QComboBox, QVBoxLayout, QPushButton
 from aqt.qt import pyqtSlot, QThread, Qt
 
 from . import utils
@@ -60,7 +60,9 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.currentConfig = dict()
         self.localWords: [str] = []
         self.remoteWordsDict: {str: SimpleWord} = {}
+        self.remoteWordSourceGroup: {str: str} = {}      # term -> source group name
         self.selectedGroups = [list()] * len(dictionaries)
+        self.groupModel: {str: str} = {}                 # group name -> model name
 
         self.querySuccessDict: {int: dict} = {}         # row -> queryResult
         self.queryFailedDict: {int: bool} = {}          # row -> bool
@@ -203,6 +205,9 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         else:
             self.selectedGroups = [list()] * len(dictionaries)
 
+        # per-group model mapping
+        self.groupModel = dict(config.get('groupModel') or {})
+
         # account settings
         selectedDictCredential = config['credential'][config['selectedDict']]
         self.usernameLineEdit.setText(selectedDictCredential['username'])
@@ -270,6 +275,9 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             sentence=self.sentenceCheckBox.isChecked(),
             exam_type=self.examTypeCheckBox.isChecked(),
             congest=int(self.rateLimitComboBox.currentText()),
+
+            # per-group model mapping
+            groupModel=dict(self.groupModel),
         )
         configChanged, cardSettingsChanged = self._saveConfig(currentConfig)
         self.currentConfig = currentConfig
@@ -448,14 +456,24 @@ class Windows(QDialog, mainUI.Ui_Dialog):
 
             if not is_popup:
                 selectedGroups = self.selectedGroups[self.currentConfig['selectedDict']]
+                # For single-group shortcut, refresh groupModel in case it was empty.
+                for group_name in selectedGroups:
+                    self.groupModel.setdefault(group_name, DEFAULT_GROUP_MODEL)
             else:
-                selectedGroups = [group.wordGroupListWidget.item(index).text() for index in range(group.wordGroupListWidget.count()) if
-                              group.wordGroupListWidget.item(index).checkState() == Qt.CheckState.Checked]
+                selectedGroups = []
+                for row in range(group.wordGroupTableWidget.rowCount()):
+                    check_item = group.wordGroupTableWidget.item(row, 0)
+                    if check_item and check_item.checkState() == Qt.CheckState.Checked:
+                        group_name = group.wordGroupTableWidget.item(row, 1).text()
+                        combo = group.wordGroupTableWidget.cellWidget(row, 2)
+                        model_name = combo.currentText() if combo else DEFAULT_GROUP_MODEL
+                        selectedGroups.append(group_name)
+                        self.groupModel[group_name] = model_name
             # 保存分组记录
             self.selectedGroups[self.currentConfig['selectedDict']] = selectedGroups
             self.progressBar.setValue(0)
             self.progressBar.setMaximum(1)
-            logger.info(f'选中单词本{selectedGroups}')
+            logger.info(f'选中单词本{selectedGroups}; groupModel={self.groupModel}')
             self.getRemoteWordList(selectedGroups)
 
         def onRejected():
@@ -479,20 +497,35 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         container = QDialog(self)
         group = wordGroup.Ui_Dialog()
         group.setupUi(container)
-        for groupName in [str(group_name) for group_name, _ in self.selectedDict.groups]:
-            item = QListWidgetItem()
-            item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            item.setText(groupName)
-            item.setCheckState(Qt.CheckState.Unchecked)
-            group.wordGroupListWidget.addItem(item)
-        # 恢复上次选择的单词本分组
+        table = group.wordGroupTableWidget
+        all_group_names = [str(g) for g, _ in self.selectedDict.groups]
+        table.setRowCount(len(all_group_names))
         selectedDict = self.currentConfig['selectedDict']
-        if not self.selectedGroups[selectedDict]:
-            self.selectedGroups[selectedDict] = list()
-        for groupName in self.selectedGroups[selectedDict]:
-            items = group.wordGroupListWidget.findItems(groupName, Qt.MatchFlag.MatchExactly)
-            for item in items:
-                item.setCheckState(Qt.CheckState.Checked)
+        previously_selected = set(self.selectedGroups[selectedDict] or [])
+        for row, group_name in enumerate(all_group_names):
+            # Column 0: checkbox
+            check_item = QTableWidgetItem()
+            check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            check_item.setCheckState(
+                Qt.CheckState.Checked if group_name in previously_selected else Qt.CheckState.Unchecked
+            )
+            table.setItem(row, 0, check_item)
+            # Column 1: group name
+            name_item = QTableWidgetItem(group_name)
+            name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            table.setItem(row, 1, name_item)
+            # Column 2: model dropdown
+            combo = QComboBox()
+            for model_name in MODEL_NAMES:
+                combo.addItem(model_name)
+            saved_model = self.groupModel.get(group_name, DEFAULT_GROUP_MODEL)
+            if saved_model not in MODEL_NAMES:
+                saved_model = DEFAULT_GROUP_MODEL
+            combo.setCurrentText(saved_model)
+            table.setCellWidget(row, 2, combo)
+        table.resizeColumnToContents(0)
+        table.resizeColumnToContents(1)
+        table.horizontalHeader().setStretchLastSection(True)
         group.buttonBox.accepted.connect(onAccepted)
         group.buttonBox.rejected.connect(onRejected)
         container.exec()
@@ -502,6 +535,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         group_map = dict(self.selectedDict.groups)
         self.localWords = getWordsByDeck(self.deckComboBox.currentText())
         self.remoteWordsDict = {}
+        self.remoteWordSourceGroup = {}
 
         # 启动单词获取线程
         self.pullWorker = RemoteWordFetchingWorker(self.selectedDict, [(group_name, group_map[group_name],) for group_name in selected_groups])
@@ -511,11 +545,13 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.pullWorker.done.connect(self.on_allPullWork_done)
         self.mainWorkerManager.start(self.pullWorker, 'done')
 
-    @pyqtSlot(list)
-    def insertWordToListWidget(self, words: [SimpleWord]):
-        """一个分组获取完毕事件"""
+    @pyqtSlot(str, list)
+    def insertWordToListWidget(self, groupName: str, words: [SimpleWord]):
+        """一个分组获取完毕事件 — tag each word with its source group so the sync
+        flow can pick the right model per-group."""
         for word in words:
             self.remoteWordsDict[word.term] = word
+            self.remoteWordSourceGroup[word.term] = groupName
             wordItem = QListWidgetItem(word.term, self.newWordListWidget)
             wordItem.setData(Qt.ItemDataRole.UserRole, None)
         self.newWordListWidget.clearSelection()
@@ -702,8 +738,10 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             return model
 
         try:
-            model = _ensure_model_with_template(MODEL_NAMES[0], getOrCreateDict2AnkiCardTemplate)
-            listening_model = _ensure_model_with_template(MODEL_NAMES[1], getOrCreateListeningCardTemplate)
+            model_cache = {
+                MODEL_NAMES[0]: _ensure_model_with_template(MODEL_NAMES[0], getOrCreateDict2AnkiCardTemplate),
+                MODEL_NAMES[1]: _ensure_model_with_template(MODEL_NAMES[1], getOrCreateListeningCardTemplate),
+            }
         except Exception as err:
             logger.warning(err)
             if not askUser(f"{err}\nDeleting it would delete ALL its cards/notes!!! Continue?", defaultno=True):
@@ -715,8 +753,11 @@ class Windows(QDialog, mainUI.Ui_Dialog):
                 self.logHandler.flush()
                 return
             # force delete the existing model
-            model = getOrCreateModel(MODEL_NAMES[0], recreate=True)
-            listening_model = _ensure_model_with_template(MODEL_NAMES[1], getOrCreateListeningCardTemplate)
+            model_cache = {
+                MODEL_NAMES[0]: getOrCreateModel(MODEL_NAMES[0], recreate=True),
+                MODEL_NAMES[1]: _ensure_model_with_template(MODEL_NAMES[1], getOrCreateListeningCardTemplate),
+            }
+        model = model_cache[MODEL_NAMES[0]]
 
         # else:           # existing model. (Let's make it simple: Reset card templates to default upon every sync.)
         #     logger.info(f"Found existing model. Reset card templates to default (FieldGroup settings will be respected).")
@@ -755,8 +796,18 @@ class Windows(QDialog, mainUI.Ui_Dialog):
                 if audio_task:
                     audiosDownloadTasks.append(audio_task)
 
+                # Pick the model for this word based on its source group's assignment.
+                source_group = self.remoteWordSourceGroup.get(term, '')
+                model_name = self.groupModel.get(source_group, DEFAULT_GROUP_MODEL)
+                word_model = model_cache.get(model_name, model)
+                if word_model is not model:
+                    # Re-target the deck for the listening model so the card lands in the same deck.
+                    word_deck = getOrCreateDeck(self.deckComboBox.currentText(), model=word_model)
+                else:
+                    word_deck = deck
+
                 # add note
-                addNoteToDeck(deck, model, currentConfig, wordItemData, PRON_TYPES[pron_type])
+                addNoteToDeck(word_deck, word_model, currentConfig, wordItemData, PRON_TYPES[pron_type])
                 self.added += 1
         mw.reset()
 

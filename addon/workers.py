@@ -85,7 +85,7 @@ class RemoteWordFetchingWorker(QObject):
     tick = pyqtSignal()
     setProgress = pyqtSignal(int)
     done = pyqtSignal()
-    doneThisGroup = pyqtSignal(list)
+    doneThisGroup = pyqtSignal(str, list)
     logger = logging.getLogger('dict2Anki.workers.RemoteWordFetchingWorker')
 
     def __init__(self, selectedDict, selectedGroups: [tuple]):
@@ -110,7 +110,7 @@ class RemoteWordFetchingWorker(QObject):
                 for i in range(totalPage):
                     executor.submit(_pull, i, groupName, groupId)
             remoteWordList = list(chain(*[ft for ft in executor.result]))
-            self.doneThisGroup.emit(remoteWordList)
+            self.doneThisGroup.emit(groupName, remoteWordList)
 
         self.done.emit()
 

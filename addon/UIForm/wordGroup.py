@@ -15,13 +15,18 @@ except Exception:
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
-        Dialog.resize(395, 261)
+        Dialog.resize(560, 340)
         self.verticalLayout = QtWidgets.QVBoxLayout(Dialog)
         self.verticalLayout.setObjectName("verticalLayout")
-        self.wordGroupListWidget = QtWidgets.QListWidget(parent=Dialog)
-        self.wordGroupListWidget.setAlternatingRowColors(True)
-        self.wordGroupListWidget.setObjectName("wordGroupListWidget")
-        self.verticalLayout.addWidget(self.wordGroupListWidget)
+        self.wordGroupTableWidget = QtWidgets.QTableWidget(parent=Dialog)
+        self.wordGroupTableWidget.setAlternatingRowColors(True)
+        self.wordGroupTableWidget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        self.wordGroupTableWidget.setColumnCount(3)
+        self.wordGroupTableWidget.setHorizontalHeaderLabels(["Sync", "Group", "Model"])
+        self.wordGroupTableWidget.horizontalHeader().setStretchLastSection(True)
+        self.wordGroupTableWidget.verticalHeader().setVisible(False)
+        self.wordGroupTableWidget.setObjectName("wordGroupTableWidget")
+        self.verticalLayout.addWidget(self.wordGroupTableWidget)
         self.buttonBox = QtWidgets.QDialogButtonBox(parent=Dialog)
         self.buttonBox.setOrientation(QtCore.Qt.Orientation.Horizontal)
         self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.StandardButton.Cancel|QtWidgets.QDialogButtonBox.StandardButton.Ok)
@@ -35,4 +40,4 @@ class Ui_Dialog(object):
 
     def retranslateUi(self, Dialog):
         _translate = QtCore.QCoreApplication.translate
-        Dialog.setWindowTitle(_translate("Dialog", "单词本分组"))
+        Dialog.setWindowTitle(_translate("Dialog", "Select groups to sync (per-group model)"))

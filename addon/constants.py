@@ -1,8 +1,9 @@
-VERSION = '7.2.0'
+VERSION = '7.3.0'
 RELEASE_URL = 'https://github.com/lixvbnet/Dict2Anki'
 VERSION_CHECK_API = 'https://api.github.com/repos/lixvbnet/Dict2Anki/releases/latest'
 WINDOW_TITLE = f'Dict2Anki {VERSION}'
 MODEL_NAMES = ['Dict2Anki', 'Dict2Anki-Listening'] # Support multiple note types
+DEFAULT_GROUP_MODEL = MODEL_NAMES[0]  # Used when a group has no explicit model assignment.
 MODEL_NAME_REGEX = r'Dict2Anki.*' # For regex matching
 
 USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36'

@@ -199,7 +199,12 @@ class AssetDownloadWorker(QObject):
     itemDone = pyqtSignal(str, str)
     done = pyqtSignal()
     logger = logging.getLogger('dict2Anki.workers.AudioDownloadWorker')
-    retries = Retry(total=5, backoff_factor=3, status_forcelist=[500, 502, 503, 504])
+    # Connection-level retries only. 5xx responses must NOT be retried here:
+    # urllib3's exponential backoff (e.g. backoff_factor=3 -> 3+6+12+24+45=90s)
+    # stacked with __download_with_retry's own max_retry loop made a dead URL
+    # block a pool worker for minutes with no visible progress. Status-code
+    # failures now return immediately and are retried solely by the plugin loop.
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=None, status=None)
     session = requests.Session()
     session.mount('http://', HTTPAdapter(max_retries=retries))
     session.mount('https://', HTTPAdapter(max_retries=retries))
@@ -229,6 +234,7 @@ class AssetDownloadWorker(QObject):
                     final_status = 'download-failed'
                     break
                 self.logger.info(f"Retrying {i+1} time...")
+                time.sleep(2)
             if success:
                 self.tick.emit()
                 self.itemDone.emit(filename, final_status)

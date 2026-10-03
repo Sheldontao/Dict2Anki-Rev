@@ -17,11 +17,11 @@ def getDeckList():
 
 
 def getWordsByDeck(deckName) -> [str]:
-    notes = mw.col.findNotes(f'deck:"{deckName}"')
+    notes = mw.col.find_notes(f'deck:"{deckName}"')
     words = []
     for nid in notes:
-        note = mw.col.getNote(nid)
-        model_name = note.model().get('name', '').lower()
+        note = mw.col.get_note(nid)
+        model_name = note.note_type().get('name', '').lower()
         if re.match(r'dict2anki.*', model_name) and note['term']:
             words.append(note['term'])
     return words
@@ -30,7 +30,7 @@ def getWordsByDeck(deckName) -> [str]:
 def getNoteIDsOfWords(wordList, deckName) -> list:
     notes = []
     for word in wordList:
-        note = mw.col.findNotes(f'deck:"{deckName}" term:"{word}"')
+        note = mw.col.find_notes(f'deck:"{deckName}" term:"{word}"')
         if note:
             notes.append(note[0])
     return notes
@@ -41,29 +41,28 @@ def getOrCreateDeck(deckName, model):
     deck = mw.col.decks.get(deck_id)
     mw.col.decks.select(deck['id'])
     mw.col.decks.save(deck)
-    mw.col.models.setCurrent(model)
+    mw.col.models.set_current(model)
     model['did'] = deck['id']
     mw.col.models.save(model)
-    mw.col.reset()
     mw.reset()
     return deck
 
 
 def getOrCreateModel(modelName, recreate=False) -> (object, bool, bool):
     """Create Note Model (Note Type). return: (model, newCreated, fieldsUpdated)"""
-    model = mw.col.models.byName(modelName)
+    model = mw.col.models.by_name(modelName)
     if model:
         if not recreate:
             updated = mergeModelFields(model)
             return model, False, updated
         else:       # Dangerous action!!!  It would delete model, AND all its cards/notes!
             logger.warning(f"Force deleting and recreating model {modelName}")
-            mw.col.models.rem(model)
+            mw.col.models.remove(model)
 
     logger.info(f'Creating model {modelName}')
     newModel = mw.col.models.new(modelName)
     for field in MODEL_FIELDS:
-        mw.col.models.addField(newModel, mw.col.models.newField(field))
+        mw.col.models.add_field(newModel, mw.col.models.new_field(field))
     return newModel, True, True
 
 
@@ -74,11 +73,11 @@ def getOrCreateCardTemplate(modelObject, cardTemplateName, qfmt, afmt, css, add=
     if cardTemplateName in [t.get('name') for t in existingCardTemplate]:
         logger.info(f"[Skip] Card Type '{cardTemplateName}' already exists.")
         return
-    cardTemplate = mw.col.models.newTemplate(cardTemplateName)
+    cardTemplate = mw.col.models.new_template(cardTemplateName)
     cardTemplate['qfmt'] = qfmt
     cardTemplate['afmt'] = afmt
     modelObject['css'] = css
-    mw.col.models.addTemplate(modelObject, cardTemplate)
+    mw.col.models.add_template(modelObject, cardTemplate)
     if add:
         mw.col.models.add(modelObject)
     else:
@@ -134,7 +133,7 @@ def mergeModelFields(modelObject) -> bool:
         if f_name in field_map:
             index, field = field_map[f_name]
         else:
-            field = mw.col.models.newField(f_name)
+            field = mw.col.models.new_field(f_name)
         fields.append(field)
     logger.info(f"step 2. add unknown_fields: {unknown_fields}")
     for f_name in unknown_fields:
@@ -197,10 +196,10 @@ def resetModelCardTemplates(modelObject):
 
     if not any(t['name'] == expected_name for t in templates):
         logger.info(f"Creating card template '{expected_name}' on model {modelObject['name']!r}")
-        new_tmpl = mw.col.models.newTemplate(expected_name)
+        new_tmpl = mw.col.models.new_template(expected_name)
         new_tmpl['qfmt'] = expected_qfmt
         new_tmpl['afmt'] = expected_afmt
-        mw.col.models.addTemplate(modelObject, new_tmpl)
+        mw.col.models.add_template(modelObject, new_tmpl)
     else:
         tmpl = next(t for t in templates if t['name'] == expected_name)
         tmpl['qfmt'] = expected_qfmt
@@ -215,7 +214,7 @@ def setNoteFieldValue(note, key: str, value: str, isNewNote: bool, overwrite: bo
     try:
         _ = note[key]
     except KeyError:
-        logger.warning(f"[Skip] Field '{key}' does not exist in note type '{note.model().get('name', '')}'")
+        logger.warning(f"[Skip] Field '{key}' does not exist in note type '{note.note_type().get('name', '')}'")
         return False
 
     if not value:
@@ -229,75 +228,22 @@ def setNoteFieldValue(note, key: str, value: str, isNewNote: bool, overwrite: bo
     return False
 
 
-def _note_has_tag(note, tag: str) -> bool:
-    for method_name in ('has_tag', 'hasTag'):
-        method = getattr(note, method_name, None)
-        if callable(method):
-            try:
-                return bool(method(tag))
-            except Exception:
-                pass
-
-    tags = getattr(note, 'tags', None)
-    if isinstance(tags, str):
-        return tag in tags.split()
-    if isinstance(tags, list):
-        return tag in tags
-    return False
-
-
 def _note_remove_tag(note, tag: str) -> bool:
-    for method_name in ('remove_tag', 'removeTag', 'delTag'):
-        method = getattr(note, method_name, None)
-        if callable(method):
-            try:
-                method(tag)
-                return True
-            except Exception:
-                pass
-
-    tags = getattr(note, 'tags', None)
-    if isinstance(tags, str):
-        tag_list = [t for t in tags.split() if t != tag]
-        note.tags = ' '.join(tag_list)
-        return True
-    if isinstance(tags, list):
-        note.tags = [t for t in tags if t != tag]
+    if tag in note.tags:
+        note.remove_tag(tag)
         return True
     return False
 
 
 def _note_add_tag(note, tag: str) -> bool:
-    for method_name in ('add_tag', 'addTag'):
-        method = getattr(note, method_name, None)
-        if callable(method):
-            try:
-                method(tag)
-                return True
-            except Exception:
-                pass
-
-    tags = getattr(note, 'tags', None)
-    if isinstance(tags, str):
-        tag_set = set(tags.split())
-        tag_set.add(tag)
-        note.tags = ' '.join(sorted(tag_set))
-        return True
-    if isinstance(tags, list):
-        if tag not in tags:
-            tags.append(tag)
-        note.tags = tags
+    if tag not in note.tags:
+        note.add_tag(tag)
         return True
     return False
 
 
 def _note_list_tags(note) -> [str]:
-    tags = getattr(note, 'tags', None)
-    if isinstance(tags, str):
-        return [t for t in tags.split() if t]
-    if isinstance(tags, list):
-        return [t for t in tags if t]
-    return []
+    return list(note.tags)
 
 
 def sync_missing_tags(note, word: dict) -> bool:
@@ -514,9 +460,8 @@ def addNoteToDeck(deck, model, config: dict, word: dict, whichPron: str, existin
     sync_missing_tags(note, word)
 
     if isNewNote:
-        mw.col.addNote(note)
+        mw.col.add_note(note, deck['id'])
         logger.info(f"添加笔记{term}")
     else:
         mw.col.update_note(note)
         logger.info(f"更新笔记{term}")
-    mw.col.reset()

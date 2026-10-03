@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from pathlib import Path
 
 from aqt.qt import QIcon
-from aqt.qt import QPlainTextEdit, QDialog, QFileDialog, QListWidgetItem, QTableWidgetItem, QComboBox, QVBoxLayout, QPushButton
+from aqt.qt import QPlainTextEdit, QDialog, QFileDialog, QListWidgetItem, QTableWidgetItem, QComboBox, QVBoxLayout, QPushButton, QCheckBox
 from aqt.qt import pyqtSlot, QThread, Qt
 
 from . import utils
@@ -462,9 +462,12 @@ class Windows(QDialog, mainUI.Ui_Dialog):
             else:
                 selectedGroups = []
                 for row in range(group.wordGroupTableWidget.rowCount()):
-                    check_item = group.wordGroupTableWidget.item(row, 0)
-                    if check_item and check_item.checkState() == Qt.CheckState.Checked:
-                        group_name = group.wordGroupTableWidget.item(row, 1).text()
+                    name_item = group.wordGroupTableWidget.item(row, 1)
+                    if not name_item:
+                        continue
+                    checkbox = group.wordGroupTableWidget.cellWidget(row, 0)
+                    if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
+                        group_name = name_item.text()
                         combo = group.wordGroupTableWidget.cellWidget(row, 2)
                         model_name = combo.currentText() if combo else DEFAULT_GROUP_MODEL
                         selectedGroups.append(group_name)
@@ -503,13 +506,12 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         selectedDict = self.currentConfig['selectedDict']
         previously_selected = set(self.selectedGroups[selectedDict] or [])
         for row, group_name in enumerate(all_group_names):
-            # Column 0: checkbox
-            check_item = QTableWidgetItem()
-            check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            check_item.setCheckState(
-                Qt.CheckState.Checked if group_name in previously_selected else Qt.CheckState.Unchecked
-            )
-            table.setItem(row, 0, check_item)
+            # Column 0: checkbox (real widget - item checkboxes are unreliable under
+            # native macOS styles where unchecked indicators may not render/click)
+            checkbox = QCheckBox()
+            checkbox.setChecked(group_name in previously_selected)
+            checkbox.setStyleSheet("QCheckBox { margin-left: 7px; }")
+            table.setCellWidget(row, 0, checkbox)
             # Column 1: group name
             name_item = QTableWidgetItem(group_name)
             name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
@@ -830,9 +832,8 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         if needToDeleteWords and askUser(f'确定要删除这些单词吗:{needToDeleteWords[:3]}...({len(needToDeleteWords)}个)', title='Dict2Anki', parent=self):
             logger.info(f"需要删除({len(needToDeleteWords)}) - {needToDeleteWords}")
             needToDeleteWordNoteIds = getNoteIDsOfWords(needToDeleteWords, currentConfig['deck'])
-            mw.col.remNotes(needToDeleteWordNoteIds)
+            mw.col.remove_notes(needToDeleteWordNoteIds)
             self.deleted += len(needToDeleteWordNoteIds)
-            mw.col.reset()
             mw.reset()
             for item in needToDeleteWordItems:
                 self.needDeleteWordListWidget.takeItem(self.needDeleteWordListWidget.row(item))
@@ -909,14 +910,14 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.tmp_currentConfig = self.getAndSaveCurrentConfig()
         # model = mw.col.models.by_name(MODEL_NAME)
         note_query = " OR ".join([f"note:{name}" for name in MODEL_NAMES])
-        noteIds = mw.col.findNotes(note_query)
+        noteIds = mw.col.find_notes(note_query)
         logger.info(f"Found ({len(noteIds)}) notes of type matching '{note_query}'")
         self.logHandler.flush()
 
         # find words that have missing assets
         wordList: [(SimpleWord, int)] = []      # [(SimpleWord, row)]
         for noteId in noteIds:
-            note = mw.col.getNote(noteId)
+            note = mw.col.get_note(noteId)
             term = note['term']
             media_dir = mw.col.media.dir()
             image_value = ''
@@ -1201,7 +1202,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.tmp_fill_audio_download_status = {}
         self.tmp_currentConfig = self.getAndSaveCurrentConfig()
         note_query = " OR ".join([f"note:{name}" for name in MODEL_NAMES])
-        noteIds = mw.col.findNotes(note_query)
+        noteIds = mw.col.find_notes(note_query)
         logger.info(f"Found ({len(noteIds)}) notes of type matching '{note_query}'")
         self.logHandler.flush()
 
@@ -1210,7 +1211,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         media_dir = mw.col.media.dir()
         scan_counter = CounterGroup(total=len(noteIds))
         for noteId in noteIds:
-            note = mw.col.getNote(noteId)
+            note = mw.col.get_note(noteId)
             term = note['term']
             reasons = self._collect_fill_missing_reasons(note, self.tmp_currentConfig, media_dir)
             if not reasons:
@@ -1295,7 +1296,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         self.tmp_fill_audio_download_status = {}
         self.tmp_currentConfig = self.getAndSaveCurrentConfig()
         note_query = " OR ".join([f"note:{name}" for name in MODEL_NAMES])
-        noteIds = mw.col.findNotes(note_query)
+        noteIds = mw.col.find_notes(note_query)
         logger.info(f"Found ({len(noteIds)}) notes of type matching '{note_query}'")
         self.logHandler.flush()
 
@@ -1303,7 +1304,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         media_dir = mw.col.media.dir()
         scan_counter = CounterGroup(total=len(noteIds))
         for noteId in noteIds:
-            note = mw.col.getNote(noteId)
+            note = mw.col.get_note(noteId)
             term = note['term']
             reasons = self._collect_placeholder_reasons(note, self.tmp_currentConfig, media_dir)
             if not reasons:
@@ -1483,7 +1484,7 @@ class Windows(QDialog, mainUI.Ui_Dialog):
         any_changes = False
         for model_name in MODEL_NAMES:
             logger.info(f"Checking Card Templates for model {model_name!r}...")
-            model = mw.col.models.byName(model_name)
+            model = mw.col.models.by_name(model_name)
             if not model:
                 showInfo(f"Model (Note Type) {model_name!r} does not exist! Please Sync first!")
                 continue

@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - 2026-09-30
+
+### Fixed
+- **Sync stalls for minutes on dead audio URLs** (e.g. youdao `dictvoice` returning 500). `AssetDownloadWorker.session` carried `Retry(total=5, backoff_factor=3, status_forcelist=[500,502,503,504])`: urllib3 retried every 500 five times with exponential backoff (3+6+12+24+45 = 90s per attempt), and the plugin-level `max_retry=3` loop stacked on top (~4.5 min per file) while holding one of the 3 `ThreadPool` workers, with the progress bar frozen because it only ticks on success. The urllib3 layer now retries connection errors only (`Retry(total=3, backoff_factor=1, status_forcelist=None, status=None)`) — a 500 response returns immediately — and the plugin loop owns status-code retries with a 2s pause between attempts. Worst case per dead file drops from ~4.5 min to ~6s (3 attempts + 2×2s), and each attempt is visible in the log.
+- **Group sync dialog: Sync checkboxes only worked on the first row** (the row that was pre-checked from the previous sync). The per-row Sync checkbox was stored as a `QTableWidgetItem` check-state; under real Anki on macOS the unchecked item indicators were rendered/hit-tested by the native style in a way that made those rows impossible to check. The Sync column is now a real `QCheckBox` widget per row (`setCellWidget`), the same mechanism as the Model column's `QComboBox`, so every row toggles reliably regardless of style. State collection in the OK handler reads the widgets (`isChecked()`); user-visible behavior (which groups sync, per-group model choice) is unchanged.
+
+## [Unreleased] - API modernization - 2026-09-30
+
+### Changed
+- **Migrated all legacy camelCase collection/note APIs to the modern snake_case backend methods** (no behavior change; future-proofs against Anki removing the compatibility aliases, and matches the Anki 26.09 cleanup of legacy Python modules):
+  - `addon/addonWindow.py`: `col.getNote` → `col.get_note`, `col.findNotes` → `col.find_notes`, `col.remNotes` → `col.remove_notes`, `col.models.byName` → `col.models.by_name`.
+  - `addon/noteManager.py`: `col.getNote` → `col.get_note`, `col.addNote` → `col.add_note(note, deck_id)` (deck id is now an explicit argument), `col.findNotes` → `col.find_notes`, `col.models.byName` → `by_name`, `newField` → `new_field`, `addField` → `add_field`, `newTemplate` → `new_template`, `addTemplate` → `add_template`, `setCurrent` → `set_current`, `models.rem` → `models.remove`, `note.model()` → `note.note_type()`.
+  - `addon/noteManager.py` tag helpers (`_note_add_tag` / `_note_remove_tag` / `_note_list_tags`) no longer probe pre-2.1 camelCase aliases (`addTag`/`delTag`/`hasTag`) or string-encoded tag lists; they call the modern `note.add_tag` / `note.remove_tag` / `note.tags` directly. Unused `_note_has_tag` was deleted.
+- **Removed all `mw.col.reset()` calls** (3 sites: `addonWindow.on_btnSync_clicked`, `noteManager.getOrCreateDeck`, `noteManager.addNoteToDeck`). Anki 26.09 marks `Collection.reset()` as deprecated ("no longer required"): `mw.reset()` (kept at every site) fires `state_did_reset` / `operation_did_execute`, and the overview/review screens already rebuild study queues via the new hook.
+- All migrated calls verified against a real `anki==26.09` package with an end-to-end collection exercise (model/template/deck creation, note add/find/get/update/tag/remove).
+
 ## [7.3.0] - 2026-06-19
 
 ### Added

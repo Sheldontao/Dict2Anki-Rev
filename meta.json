@@ -1,1 +1,44 @@
-{"name": "Dict2Anki Fork", "mod": 1736428462, "min_point_version": 50, "max_point_version": 50, "branch_index": 1, "disabled": false, "config": {"deck": "EnglishReading::daily cumulation::\u751f\u8bcd", "selectedDict": 1, "selectedApi": 1, "selectedGroup": [[], ["\u6211\u7684\u751f\u8bcd\u672c"]], "briefDefinition": true, "syncTemplates": false, "noPron": false, "BrEPron": false, "AmEPron": true, "definition_en": true, "image": true, "pronunciation": true, "phrase": true, "sentence": true, "exam_type": true, "credential": [{"username": "", "password": "", "cookie": ""}, {"username": "", "password": "", "cookie": "***REMOVED***"}]}, "conflicts": [], "update_enabled": true}
+{
+  "name": "Dict2Anki Fork",
+  "mod": 1736428462,
+  "min_point_version": 50,
+  "max_point_version": 50,
+  "branch_index": 1,
+  "disabled": false,
+  "config": {
+    "deck": "EnglishReading::daily cumulation::生词",
+    "selectedDict": 1,
+    "selectedApi": 1,
+    "selectedGroup": [
+      [],
+      [
+        "我的生词本"
+      ]
+    ],
+    "briefDefinition": true,
+    "syncTemplates": false,
+    "noPron": false,
+    "BrEPron": false,
+    "AmEPron": true,
+    "definition_en": true,
+    "image": true,
+    "pronunciation": true,
+    "phrase": true,
+    "sentence": true,
+    "exam_type": true,
+    "credential": [
+      {
+        "username": "",
+        "password": "",
+        "cookie": ""
+      },
+      {
+        "username": "",
+        "password": "",
+        "cookie": ""
+      }
+    ]
+  },
+  "conflicts": [],
+  "update_enabled": true
+}
